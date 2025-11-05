@@ -1,0 +1,47 @@
+{
+  "name": "summary-forge",
+  "version": "1.0.0",
+  "description": "An intelligent tool that uses AI to create comprehensive summaries of technical books",
+  "type": "module",
+  "main": "./src/summary-forge.js",
+  "exports": {
+    ".": {
+      "import": "./src/summary-forge.js"
+    }
+  },
+  "bin": {
+    "summary": "./bin/summary.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "ai",
+    "summary",
+    "books",
+    "pdf",
+    "epub",
+    "gpt",
+    "openai"
+  ],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.15.0",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.6.1",
+    "elevenlabs": "^0.8.2",
+    "inquirer": "^10.2.2",
+    "openai": "^6.8.1",
+    "ora": "^8.1.0",
+    "pdf-parse": "^1.1.1",
+    "puppeteer": "^23.11.1"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
+    "vitest": "^2.1.8"
+  }
+}
