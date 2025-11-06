@@ -35,13 +35,22 @@ export async function hasConfig() {
 
 /**
  * Load configuration from settings.json with .env fallback
+ * @param {Object} options - Options for loading config
+ * @param {boolean} options.skipEnvFallback - Skip .env fallback (for testing)
  * @returns {Promise<Object|null>} Configuration object or null if not found/invalid
  */
-export async function loadConfig() {
+export async function loadConfig(options = {}) {
+  const { skipEnvFallback = false } = options;
+  
   try {
     const configPath = getConfigPath();
     const content = await fs.readFile(configPath, 'utf8');
     const config = JSON.parse(content);
+    
+    // If skipEnvFallback is true, return config as-is (for testing)
+    if (skipEnvFallback) {
+      return config;
+    }
     
     // Load .env as fallback for missing values
     dotenvConfig();
@@ -61,7 +70,12 @@ export async function loadConfig() {
     };
   } catch (error) {
     if (error.code === 'ENOENT') {
-      // File doesn't exist, try loading from .env only
+      // File doesn't exist
+      if (skipEnvFallback) {
+        return null; // Don't try .env fallback in tests
+      }
+      
+      // Try loading from .env only
       dotenvConfig();
       
       if (!process.env.OPENAI_API_KEY) {

@@ -123,7 +123,7 @@ describe('Config Utility', () => {
 
   describe('loadConfig()', () => {
     it('should return null when config does not exist', async () => {
-      const config = await loadConfig();
+      const config = await loadConfig({ skipEnvFallback: true });
       expect(config).toBeNull();
     });
 
@@ -136,7 +136,7 @@ describe('Config Utility', () => {
       };
       
       await saveConfig(config);
-      const loaded = await loadConfig();
+      const loaded = await loadConfig({ skipEnvFallback: true });
       
       expect(loaded).toEqual(config);
     });
@@ -146,7 +146,7 @@ describe('Config Utility', () => {
       await fs.mkdir(path.dirname(configPath), { recursive: true });
       await fs.writeFile(configPath, 'invalid json{', 'utf8');
       
-      const config = await loadConfig();
+      const config = await loadConfig({ skipEnvFallback: true });
       expect(config).toBeNull();
     });
   });

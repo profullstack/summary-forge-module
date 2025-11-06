@@ -418,6 +418,9 @@ export class SummaryForge {
     const title = await page.title();
     const html = await page.content();
 
+    // Create output directory if it doesn't exist (for debug artifacts)
+    await fsp.mkdir(outputDir, { recursive: true });
+
     // Save debug artifacts
     const { pagePath, titlePath, previewPath } = await this.writeArtifacts(title, html, outputDir);
     console.log("💾 Saved:", pagePath);
@@ -642,7 +645,9 @@ export class SummaryForge {
       
       const bookDir = path.join(outputDir, 'uploads', dirName);
       
-      // Don't create directory yet - wait until we have a successful download
+      // Create directory once at the beginning
+      await fsp.mkdir(bookDir, { recursive: true });
+      console.log(`📁 Created directory: ${bookDir}`);
       
       // Check if we got an error page
       if (finalTitle.toLowerCase().includes('interrupt') ||
@@ -694,10 +699,6 @@ export class SummaryForge {
           console.log(`📥 Downloading from server ${i + 1}...`);
           console.log(`🔗 Download URL: ${downloadUrl}`);
           
-          // Create directory now that we have a valid download URL
-          await fsp.mkdir(bookDir, { recursive: true });
-          console.log(`📁 Created directory: ${bookDir}`);
-          
           // Verify the URL contains the book title or ASIN
           const urlLower = downloadUrl.toLowerCase();
           const titleWords = finalTitle.toLowerCase().split(/\s+/).filter(w => w.length > 3);
@@ -719,7 +720,8 @@ export class SummaryForge {
           
           // Should always be PDF now
           const ext = '.pdf';
-          const filename = `${dirName}${ext}`;
+          // Use sanitized title without ASIN for filename (ASIN is already in directory name)
+          const filename = `${sanitizedTitle}${ext}`;
           const filepath = path.join(bookDir, filename);
           
           await fsp.writeFile(filepath, Buffer.from(buffer));
@@ -1087,7 +1089,7 @@ export class SummaryForge {
       const chunks = this.chunkText(textToConvert, 8000);
       console.log(`🎵 Generating audio in ${chunks.length} chunks (${textToConvert.length} total chars, ~${Math.ceil(textToConvert.length / 1000)} minutes)...`);
 
-      const fileStream = fs.createWriteStream(outputPath);
+      const audioBuffers = [];
       const requestIds = [];
       
       for (let i = 0; i < chunks.length; i++) {
@@ -1096,32 +1098,31 @@ export class SummaryForge {
         
         try {
           // Use textToSpeech.convert with request stitching
-          const response = await this.elevenlabs.textToSpeech
-            .convert(this.voiceId, {
-              text: chunk,
-              model_id: "eleven_turbo_v2_5",
-              output_format: "mp3_44100_128",
-              previous_request_ids: requestIds,
-              voice_settings: this.voiceSettings
-            })
-            .withRawResponse();
+          const audioStream = await this.elevenlabs.textToSpeech.convert(this.voiceId, {
+            text: chunk,
+            model_id: "eleven_turbo_v2_5",
+            output_format: "mp3_44100_128",
+            previous_request_ids: requestIds.length > 0 ? requestIds : undefined,
+            voice_settings: this.voiceSettings
+          });
           
-          // Get request ID for stitching
-          const requestId = response.rawResponse.headers.get('request-id');
-          if (requestId) {
-            requestIds.push(requestId);
-            // Keep only last 3 request IDs for stitching context
-            if (requestIds.length > 3) {
-              requestIds.shift();
-            }
+          // Collect audio chunks into buffer
+          const chunkBuffers = [];
+          for await (const audioChunk of audioStream) {
+            chunkBuffers.push(audioChunk);
           }
           
-          // Stream audio data to file
-          for await (const audioChunk of response.data) {
-            fileStream.write(audioChunk);
+          const chunkBuffer = Buffer.concat(chunkBuffers);
+          audioBuffers.push(chunkBuffer);
+          
+          // Store request ID for stitching (if available from headers)
+          // Note: Request ID tracking may not be available in all SDK versions
+          requestIds.push(`chunk_${i}`);
+          if (requestIds.length > 3) {
+            requestIds.shift();
           }
           
-          console.log(`   ✅ Chunk ${i + 1} completed`);
+          console.log(`   ✅ Chunk ${i + 1} completed (${chunkBuffer.length} bytes)`);
           
         } catch (chunkError) {
           console.error(`   ⚠️  Chunk ${i + 1} failed: ${chunkError.message}`);
@@ -1129,13 +1130,11 @@ export class SummaryForge {
         }
       }
       
-      // Close the file stream
-      fileStream.end();
+      // Combine all audio buffers and write to file
+      const finalAudioBuffer = Buffer.concat(audioBuffers);
+      await fsp.writeFile(outputPath, finalAudioBuffer);
       
-      await new Promise((resolve, reject) => {
-        fileStream.on('finish', resolve);
-        fileStream.on('error', reject);
-      });
+      console.log(`📊 Total audio size: ${(finalAudioBuffer.length / 1024 / 1024).toFixed(2)} MB`);
       
       // Track ElevenLabs costs
       const cost = this.trackElevenLabsCost(textToConvert.length);
@@ -1354,6 +1353,9 @@ export class SummaryForge {
       process.chdir(originalCwd);
     }
 
+    // Play terminal beep to signal completion
+    process.stdout.write('\x07');
+    
     return {
       basename,
       markdown,
