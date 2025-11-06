@@ -625,7 +625,7 @@ export class SummaryForge {
       format = 'pdf', // 'pdf', 'epub', 'pdf,epub', or 'all'
       sortBy = '', // '' (relevance) or 'date' (newest)
       language = 'en', // Language code (default: 'en' for English)
-      sources = 'zlib,lgli,lgrs' // Data sources, comma-separated (default: all main sources)
+      sources = null // Data sources, comma-separated (default: null = search all sources)
     } = options;
 
     console.log(`🔍 Searching Anna's Archive for "${query}"...`);
@@ -655,7 +655,7 @@ export class SummaryForge {
       });
     }
     
-    // Add source filters (src) - supports comma-separated values
+    // Add source filters (src) - only if explicitly provided
     if (sources) {
       const sourceList = sources.split(',').map(s => s.trim().toLowerCase());
       sourceList.forEach(src => {

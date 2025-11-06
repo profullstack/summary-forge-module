@@ -147,15 +147,16 @@ summary title "A Philosophy of Software Design"
 summary search "Clean Code"
 summary search "JavaScript" --max-results 5 --format epub
 summary search "Python" --sort date
-summary search "LLM Fine Tuning" --language en --sources zlib,lgli,lgrs
+summary search "LLM Fine Tuning" --language en
 summary search "Machine Learning" --format pdf,epub --language en,es
+summary search "Rare Book" --sources zlib,lgli  # Limit to specific sources
 
 # Options:
 #   -n, --max-results <number>  Maximum results to display (default: 10)
 #   -f, --format <format>       Filter by format: pdf, epub, pdf,epub, or all (default: pdf)
 #   -s, --sort <sort>           Sort by: date (newest) or empty for relevance (default: '')
 #   -l, --language <language>   Language code(s), comma-separated (e.g., en, es, fr) (default: en)
-#   --sources <sources>         Data sources, comma-separated (default: zlib,lgli,lgrs)
+#   --sources <sources>         Data sources, comma-separated (default: all sources)
 #                               Options: zlib, lgli, lgrs, and others
 ```
 
@@ -276,16 +277,16 @@ const advancedResults = await forge.searchAnnasArchive('LLM Fine Tuning', {
   maxResults: 10,
   format: 'pdf,epub',           // Multiple formats
   sortBy: 'date',                // Sort by newest
-  language: 'en',                // English only
-  sources: 'zlib,lgli,lgrs'      // All main sources
+  language: 'en'                 // English only (default)
+  // sources not specified = search all sources (default)
 });
 
-// Search with multiple languages
+// Search with multiple languages and specific sources
 const multiResults = await forge.searchAnnasArchive('Machine Learning', {
   maxResults: 10,
   format: 'pdf',
   language: 'en,es',             // English and Spanish
-  sources: 'zlib,lgli'           // Specific sources only
+  sources: 'zlib,lgli'           // Limit to specific sources only
 });
 
 console.log('Found:', results.map(r => ({

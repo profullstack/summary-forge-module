@@ -352,7 +352,7 @@ program
   .option('-f, --format <format>', 'File format filter: pdf, epub, pdf,epub, or all', 'pdf')
   .option('-s, --sort <sort>', 'Sort by: date (newest) or leave empty for relevance', '')
   .option('-l, --language <language>', 'Language code(s), comma-separated (e.g., en, es, fr)', 'en')
-  .option('--sources <sources>', 'Data sources, comma-separated (e.g., zlib,lgli,lgrs)', 'zlib,lgli,lgrs')
+  .option('--sources <sources>', 'Data sources, comma-separated (e.g., zlib,lgli,lgrs). Leave empty to search all sources.')
   .action(async (query, options) => {
     try {
       const forge = await createForge();
@@ -366,7 +366,7 @@ program
         format: options.format,
         sortBy: options.sort,
         language: options.language,
-        sources: options.sources
+        sources: options.sources || null
       });
       
       spinner.stop();
