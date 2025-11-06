@@ -59,10 +59,16 @@ while IFS= read -r title || [ -n "$title" ]; do
     log "✅ Successfully processed: $title"
     success=$((success + 1))
     
-    # Extract costs from output
+    # Extract costs from output (handle empty values gracefully)
     openai=$(echo "$output" | grep -oP 'OpenAI \(GPT-5\):\s+\K\$[\d.]+' | tr -d '$' || echo "0")
     elevenlabs=$(echo "$output" | grep -oP 'ElevenLabs \(TTS\):\s+\K\$[\d.]+' | tr -d '$' || echo "0")
     rainforest=$(echo "$output" | grep -oP 'Rainforest API:\s+\K\$[\d.]+' | tr -d '$' || echo "0")
+    
+    # Ensure values are valid numbers (default to 0 if empty or invalid)
+    # Remove any non-numeric characters except dots
+    openai=$(echo "$openai" | grep -oE '^[0-9]+\.?[0-9]*$' || echo "0")
+    elevenlabs=$(echo "$elevenlabs" | grep -oE '^[0-9]+\.?[0-9]*$' || echo "0")
+    rainforest=$(echo "$rainforest" | grep -oE '^[0-9]+\.?[0-9]*$' || echo "0")
     
     # Add to totals using bc for floating point math
     total_openai=$(echo "$total_openai + $openai" | bc)
