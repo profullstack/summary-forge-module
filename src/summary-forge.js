@@ -629,8 +629,8 @@ export class SummaryForge {
     console.log(`🔍 Search URL: ${searchUrl}`);
     
     // Simple proxy setup like test-just-proxy.js
-    // Session ID must be between 1-36 for Webshare
-    const sessionId = Math.floor(Math.random() * 36) + 1;
+    // Session ID must be between 1-100 for Webshare (100 US-based proxies)
+    const sessionId = Math.floor(Math.random() * 100) + 1;
     const proxyUrlObj = new URL(this.proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
@@ -639,7 +639,7 @@ export class SummaryForge {
     
     console.log(`🔒 Proxy session: ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
     
-    console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of 36)`);
+    console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of 100)`);
     
     // Use a unique profile per session to avoid conflicts between runs
     const userDataDir = `./puppeteer_ddg_profile_${sessionId}_${Date.now()}`;
@@ -829,40 +829,60 @@ export class SummaryForge {
         throw new Error(`Blocked by Anna's Archive: ${finalTitle}`);
       }
       
-      // Step 3: Find slow download links (filter for "no waitlist" servers)
+      // Step 3: Find slow download links (try all servers, prioritize no-waitlist)
       const slowLinks = await page.$$eval('a[href^="/slow_download/"]', links => {
-        return links
-          .map((a, idx) => ({
-            href: a.href,
-            text: a.parentElement?.textContent || '',
-            index: idx
-          }))
-          .filter(link => link.text.includes('no waitlist'))
-          .map(link => link.href);
+        return links.map((a, idx) => ({
+          href: a.href,
+          text: a.parentElement?.textContent || '',
+          index: idx,
+          hasWaitlist: a.parentElement?.textContent?.includes('waitlist') || false
+        }));
       });
       
-      if (slowLinks.length === 0) {
-        console.log('⚠️  No "no waitlist" servers found, trying all servers...');
-        // Fallback to all servers if no "no waitlist" found
-        const allLinks = await page.$$eval('a[href^="/slow_download/"]', links =>
-          links.map(a => a.href)
-        );
-        slowLinks.push(...allLinks);
-      }
+      // Sort: no-waitlist servers first, then waitlist servers
+      slowLinks.sort((a, b) => {
+        if (a.hasWaitlist === b.hasWaitlist) return 0;
+        return a.hasWaitlist ? 1 : -1;
+      });
       
-      console.log(`🔗 Found ${slowLinks.length} download servers (prioritizing no-waitlist):`);
-      slowLinks.forEach((url, idx) => {
-        console.log(`   ${idx + 1}. ${url}`);
+      console.log(`🔗 Found ${slowLinks.length} download servers:`);
+      slowLinks.forEach((link, idx) => {
+        const waitlistStatus = link.hasWaitlist ? '(with waitlist)' : '(no waitlist)';
+        console.log(`   ${idx + 1}. ${waitlistStatus} ${link.href}`);
       });
       
       // Step 4: Try each download link
       for (let i = 0; i < slowLinks.length; i++) {
-        console.log(`\n⏳ Trying server ${i + 1}/${slowLinks.length}: ${slowLinks[i]}`);
+        const serverInfo = slowLinks[i];
+        const waitlistStatus = serverInfo.hasWaitlist ? 'with waitlist' : 'no waitlist';
+        console.log(`\n⏳ Trying server ${i + 1}/${slowLinks.length} (${waitlistStatus}): ${serverInfo.href}`);
         
         try {
-          // Use Puppeteer with CAPTCHA solving to get the download URL
+          // Navigate to the slow download page
+          console.log(`🌐 Navigating to download page...`);
+          await page.goto(serverInfo.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          
+          // Check for countdown timer and wait if present
+          const waitTime = await page.evaluate(() => {
+            const bodyText = document.body.textContent;
+            const match = bodyText.match(/Please wait (\d+) seconds/i);
+            return match ? parseInt(match[1], 10) : 0;
+          });
+          
+          if (waitTime > 0) {
+            console.log(`⏰ Server has ${waitTime} second countdown, waiting...`);
+            // Wait for the countdown plus a small buffer
+            await new Promise(resolve => setTimeout(resolve, (waitTime + 2) * 1000));
+            
+            // Reload the page to get the actual download links
+            console.log(`🔄 Reloading page after countdown...`);
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          
+          // Now get the download URL using the existing method
           console.log(`🌐 Fetching download URL with Puppeteer + 2captcha...`);
-          const downloadUrl = await this.getDownloadUrlWithPuppeteer(slowLinks[i], page, bookDir);
+          const downloadUrl = await this.getDownloadUrlWithPuppeteer(page.url(), page, bookDir);
           
           if (!downloadUrl) {
             console.log(`⚠️  Server ${i + 1} - no download URL found`);
@@ -883,18 +903,51 @@ export class SummaryForge {
             continue;
           }
           
-          // Download the file using Puppeteer (reuses the same session with cookies)
-          console.log(`📥 Downloading file via Puppeteer (same session)...`);
-          const downloadResponse = await page.goto(downloadUrl, {
-            waitUntil: 'domcontentloaded',  // Don't wait for network idle (file downloads can take time)
-            timeout: 300000  // 5 minutes for large files
+          // Download using fetch with the authenticated session cookies
+          console.log(`📥 Downloading file...`);
+          
+          // Get cookies from the page to use in fetch
+          const cookies = await page.cookies();
+          const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+          
+          // Use fetch to download the file (more reliable than CDP for large files)
+          const response = await fetch(downloadUrl, {
+            headers: {
+              'Cookie': cookieString,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+              'Referer': page.url()
+            }
           });
           
-          if (!downloadResponse || !downloadResponse.ok()) {
-            throw new Error(`HTTP ${downloadResponse?.status() || 'unknown'}`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
           
-          const buffer = await downloadResponse.buffer();
+          // Get content length for progress tracking
+          const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+          const contentLengthMB = (contentLength / 1024 / 1024).toFixed(2);
+          console.log(`📊 File size: ${contentLengthMB} MB`);
+          
+          // Download with progress tracking
+          const chunks = [];
+          let downloadedBytes = 0;
+          let lastProgressPercent = 0;
+          
+          for await (const chunk of response.body) {
+            chunks.push(chunk);
+            downloadedBytes += chunk.length;
+            
+            if (contentLength > 0) {
+              const progressPercent = Math.floor((downloadedBytes / contentLength) * 100);
+              if (progressPercent >= lastProgressPercent + 10) {
+                console.log(`   📥 Downloaded: ${progressPercent}% (${(downloadedBytes / 1024 / 1024).toFixed(2)} MB)`);
+                lastProgressPercent = progressPercent;
+              }
+            }
+          }
+          
+          const buffer = Buffer.concat(chunks);
+          console.log(`✅ Download complete: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
           
           // Should always be PDF now
           const ext = '.pdf';
