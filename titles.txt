@@ -1,0 +1,8 @@
+AI Engineering: Building Applications with Foundation Models
+LLM Engineering: Master the Art of Engineering Large Language Models
+AI-Powered Developer: Build Great Software with ChatGPT and Copilot
+LLMs in Production: Engineering AI Applications
+JavaScript Design Patterns: Deliver Fast and Efficient Production-grade JavaScript
+Learning JavaScript Design Patterns: A JavaScript & React Developer's Guide
+Essential Software Design Patterns for JavaScript Developers: A Practical Guide to Creating Clean and Maintainable Code
+30 Agents Every AI Engineer Must Build: Transform LLMs into Real-World Systems

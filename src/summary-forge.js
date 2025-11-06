@@ -49,7 +49,10 @@ export class SummaryForge {
     
     // Initialize ElevenLabs client if API key is provided
     if (this.elevenlabsApiKey) {
-      this.elevenlabs = new ElevenLabsClient({ apiKey: this.elevenlabsApiKey });
+      this.elevenlabs = new ElevenLabsClient({
+        apiKey: this.elevenlabsApiKey,
+        timeout: 300000  // 5 minutes timeout for long audio generation
+      });
     }
     
     // ElevenLabs voice settings

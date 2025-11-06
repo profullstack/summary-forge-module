@@ -275,9 +275,10 @@ program
 program
   .command('title <bookTitle...>')
   .description('Search for a book by title (shortcut for search)')
-  .action(async (bookTitleParts) => {
+  .option('-f, --force', 'Skip prompts: auto-select first result and process immediately')
+  .action(async (bookTitleParts, options) => {
     const title = bookTitleParts.join(' ');
-    await searchAndDisplay(title);
+    await searchAndDisplay(title, options.force);
   });
 
 program
@@ -526,7 +527,7 @@ program
   });
 
 // Helper function for search and display
-async function searchAndDisplay(title) {
+async function searchAndDisplay(title, force = false) {
   try {
     const spinner = ora('Searching Amazon...').start();
     const forge = await createForge();
@@ -538,23 +539,34 @@ async function searchAndDisplay(title) {
       return;
     }
 
-    console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+    let selectedBook;
     
-    const choices = results.slice(0, 10).map((book, idx) => ({
-      name: `${book.title} - ${book.author || 'Unknown'} (ASIN: ${book.asin})`,
-      value: { asin: book.asin, title: book.title },
-      short: book.title
-    }));
+    if (force) {
+      // Auto-select first result
+      selectedBook = { asin: results[0].asin, title: results[0].title };
+      console.log(chalk.blue(`\n📚 Auto-selected first result (--force):`));
+      console.log(chalk.white(`   ${results[0].title} - ${results[0].author || 'Unknown'} (ASIN: ${results[0].asin})\n`));
+    } else {
+      console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+      
+      const choices = results.slice(0, 10).map((book, idx) => ({
+        name: `${book.title} - ${book.author || 'Unknown'} (ASIN: ${book.asin})`,
+        value: { asin: book.asin, title: book.title },
+        short: book.title
+      }));
 
-    const { selectedBook } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'selectedBook',
-        message: 'Select a book:',
-        choices,
-        pageSize: 10
-      }
-    ]);
+      const answer = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedBook',
+          message: 'Select a book:',
+          choices,
+          pageSize: 10
+        }
+      ]);
+      
+      selectedBook = answer.selectedBook;
+    }
 
     // Download automatically
     const downloadSpinner = ora('Downloading from Anna\'s Archive...').start();
@@ -564,14 +576,21 @@ async function searchAndDisplay(title) {
       
       console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
       
-      const { shouldProcess } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'shouldProcess',
-          message: 'Would you like to process this book now?',
-          default: true
-        }
-      ]);
+      let shouldProcess = true;
+      
+      if (!force) {
+        const answer = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'shouldProcess',
+            message: 'Would you like to process this book now?',
+            default: true
+          }
+        ]);
+        shouldProcess = answer.shouldProcess;
+      } else {
+        console.log(chalk.blue('🚀 Auto-processing (--force)...\n'));
+      }
       
       if (shouldProcess) {
         downloadSpinner.start('Processing book...');
