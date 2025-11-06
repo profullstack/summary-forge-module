@@ -616,6 +616,210 @@ export class SummaryForge {
   }
 
   /**
+   * Search Anna's Archive directly by title or partial match
+   * Returns search results without using Rainforest API
+   */
+  async searchAnnasArchive(query, options = {}) {
+    const {
+      maxResults = 10,
+      format = 'pdf', // 'pdf', 'epub', 'pdf,epub', or 'all'
+      sortBy = '', // '' (relevance) or 'date' (newest)
+      language = 'en', // Language code (default: 'en' for English)
+      sources = 'zlib,lgli,lgrs' // Data sources, comma-separated (default: all main sources)
+    } = options;
+
+    console.log(`🔍 Searching Anna's Archive for "${query}"...`);
+    
+    // Build search URL with all parameters matching Anna's Archive format
+    const params = new URLSearchParams({
+      index: '',
+      page: '1',
+      sort: sortBy,
+      display: 'list_compact',
+      q: query
+    });
+    
+    // Add format filter (ext) - supports comma-separated values
+    if (format && format !== 'all') {
+      const formats = format.split(',').map(f => f.trim().toLowerCase());
+      formats.forEach(fmt => {
+        params.append('ext', fmt);
+      });
+    }
+    
+    // Add language filter (lang) - single value or comma-separated
+    if (language) {
+      const languages = language.split(',').map(l => l.trim().toLowerCase());
+      languages.forEach(lang => {
+        params.append('lang', lang);
+      });
+    }
+    
+    // Add source filters (src) - supports comma-separated values
+    if (sources) {
+      const sourceList = sources.split(',').map(s => s.trim().toLowerCase());
+      sourceList.forEach(src => {
+        params.append('src', src);
+      });
+    }
+    
+    const searchUrl = `https://annas-archive.org/search?${params.toString()}`;
+    
+    console.log(`🌐 Search URL: ${searchUrl}`);
+    
+    // Set up proxy for search
+    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+    const proxyUrlObj = new URL(this.proxyUrl);
+    const proxyHost = proxyUrlObj.hostname;
+    const proxyPort = parseInt(proxyUrlObj.port) || 80;
+    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    const proxyPassword = this.proxyPassword;
+    
+    console.log(`🔒 Using proxy session ${sessionId}`);
+    
+    const userDataDir = `./puppeteer_search_${sessionId}_${Date.now()}`;
+    
+    const browser = await puppeteer.launch({
+      headless: this.headless,
+      args: [
+        `--proxy-server=${proxyHost}:${proxyPort}`,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
+      userDataDir,
+      defaultViewport: { width: 1200, height: 800 },
+    });
+    
+    try {
+      const page = await browser.newPage();
+      
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+      );
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+      });
+      
+      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      
+      // Navigate to search page
+      console.log(`🌐 Navigating to search page...`);
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      
+      // Handle DDoS-Guard
+      const clicked = await page.evaluate(async () => {
+        function matchesText(el, re) {
+          try {
+            return el && el.innerText && re.test(el.innerText.trim());
+          } catch (e) {
+            return false;
+          }
+        }
+        const RE = /(verify|continue|i am not a robot|i'm not a robot|check your browser|proceed|allow)/i;
+        const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a'));
+        for (const b of buttons) {
+          if (matchesText(b, RE)) {
+            try {
+              b.click();
+              return { clicked: true, text: b.innerText || b.value || 'button' };
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+        return { clicked: false };
+      });
+
+      if (clicked && clicked.clicked) {
+        console.log('✅ Clicked challenge button:', clicked.text);
+      }
+
+      // Wait for DDoS-Guard clearance
+      console.log('⏳ Waiting for DDoS-Guard clearance...');
+      const haveCookies = await this.waitForDdgCookies(page, 60000);
+      if (haveCookies) {
+        console.log('✅ DDoS-Guard cleared');
+        try {
+          await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        } catch (e) {
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      // Wait for search results
+      console.log('⏳ Waiting for search results...');
+      await page.waitForSelector('.js-aarecord-list-outer', { timeout: 120000 });
+      console.log('✅ Search results loaded');
+      
+      // Extract search results
+      const results = await page.$$eval('.js-aarecord-list-outer', (containers, maxResults) => {
+        return containers.slice(0, maxResults).map((container, idx) => {
+          const link = container.querySelector('a[href^="/md5/"]');
+          const titleElement = link?.querySelector('h3') || link;
+          const title = titleElement ? titleElement.textContent.trim() : '';
+          const text = container.textContent;
+          
+          // Extract file size
+          const sizeMatch = text.match(/(\d+(?:\.\d+)?)\s*(KB|MB|GB)/i);
+          let sizeInMB = 0;
+          if (sizeMatch) {
+            const size = parseFloat(sizeMatch[1]);
+            const unit = sizeMatch[2].toUpperCase();
+            if (unit === 'KB') sizeInMB = size / 1024;
+            else if (unit === 'MB') sizeInMB = size;
+            else if (unit === 'GB') sizeInMB = size * 1024;
+          }
+          
+          // Extract format
+          const formatMatch = text.match(/\.(pdf|epub)/i);
+          const format = formatMatch ? formatMatch[1].toLowerCase() : 'unknown';
+          
+          // Extract author if present
+          const authorMatch = text.match(/by\s+([^,\n]+)/i);
+          const author = authorMatch ? authorMatch[1].trim() : null;
+          
+          return {
+            index: idx + 1,
+            title: title,
+            author: author,
+            format: format,
+            sizeInMB: sizeInMB,
+            href: link ? link.getAttribute('href') : null,
+            url: link ? `https://annas-archive.org${link.getAttribute('href')}` : null
+          };
+        });
+      }, maxResults);
+      
+      await browser.close();
+      
+      // Clean up browser profile
+      try {
+        await fsp.rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+      
+      console.log(`✅ Found ${results.length} results`);
+      
+      return results;
+      
+    } catch (error) {
+      await browser.close();
+      
+      // Clean up browser profile
+      try {
+        await fsp.rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+      
+      throw new Error(`Failed to search Anna's Archive: ${error.message}`);
+    }
+  }
+
+  /**
    * Check if a string is a real ISBN (10 or 13 digits) vs Amazon ASIN
    * Real ISBNs are numeric and 10 or 13 digits long
    * Amazon ASINs are alphanumeric and typically 10 characters

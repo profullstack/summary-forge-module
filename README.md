@@ -140,11 +140,23 @@ summary file /path/to/book.pdf -f
 ### Search by Title
 
 ```bash
-# Direct title search
+# Direct title search (uses Amazon/Rainforest API)
 summary title "A Philosophy of Software Design"
 
-# Or interactive search (prompts for title)
-summary search
+# Search Anna's Archive directly (bypasses Amazon/Rainforest API)
+summary search "Clean Code"
+summary search "JavaScript" --max-results 5 --format epub
+summary search "Python" --sort date
+summary search "LLM Fine Tuning" --language en --sources zlib,lgli,lgrs
+summary search "Machine Learning" --format pdf,epub --language en,es
+
+# Options:
+#   -n, --max-results <number>  Maximum results to display (default: 10)
+#   -f, --format <format>       Filter by format: pdf, epub, pdf,epub, or all (default: pdf)
+#   -s, --sort <sort>           Sort by: date (newest) or empty for relevance (default: '')
+#   -l, --language <language>   Language code(s), comma-separated (e.g., en, es, fr) (default: en)
+#   --sources <sources>         Data sources, comma-separated (default: zlib,lgli,lgrs)
+#                               Options: zlib, lgli, lgrs, and others
 ```
 
 ### Look up by ISBN/ASIN
@@ -221,6 +233,8 @@ console.log('Archive:', result.archive);
 
 ### Search for Books
 
+#### Using Amazon/Rainforest API
+
 ```javascript
 const forge = new SummaryForge({
   openaiApiKey: process.env.OPENAI_API_KEY,
@@ -237,6 +251,57 @@ console.log('Found:', results.map(b => ({
 // Get download URL
 const url = forge.getAnnasArchiveUrl(results[0].asin);
 console.log('Download from:', url);
+```
+
+#### Using Anna's Archive Direct Search (No Rainforest API Required)
+
+```javascript
+const forge = new SummaryForge({
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  enableProxy: true,
+  proxyUrl: process.env.PROXY_URL,
+  proxyUsername: process.env.PROXY_USERNAME,
+  proxyPassword: process.env.PROXY_PASSWORD
+});
+
+// Basic search
+const results = await forge.searchAnnasArchive('JavaScript', {
+  maxResults: 10,
+  format: 'pdf',
+  sortBy: 'date'  // Sort by newest
+});
+
+// Advanced search with filters
+const advancedResults = await forge.searchAnnasArchive('LLM Fine Tuning', {
+  maxResults: 10,
+  format: 'pdf,epub',           // Multiple formats
+  sortBy: 'date',                // Sort by newest
+  language: 'en',                // English only
+  sources: 'zlib,lgli,lgrs'      // All main sources
+});
+
+// Search with multiple languages
+const multiResults = await forge.searchAnnasArchive('Machine Learning', {
+  maxResults: 10,
+  format: 'pdf',
+  language: 'en,es',             // English and Spanish
+  sources: 'zlib,lgli'           // Specific sources only
+});
+
+console.log('Found:', results.map(r => ({
+  title: r.title,
+  author: r.author,
+  format: r.format,
+  size: `${r.sizeInMB.toFixed(1)} MB`,
+  url: r.url
+})));
+
+// Download the first result
+if (results.length > 0) {
+  const md5 = results[0].href.match(/\/md5\/([a-f0-9]+)/)[1];
+  const download = await forge.downloadFromAnnasArchive(md5, '.', results[0].title);
+  console.log('Downloaded:', download.filepath);
+}
 ```
 
 ### API Reference
@@ -275,8 +340,28 @@ new SummaryForge({
 - `processFile(filePath)` - Process a PDF or EPUB file
   - Returns: `{ basename, markdown, files, archive, hasAudio }`
 
-- `searchBookByTitle(title)` - Search Amazon for books
+- `searchBookByTitle(title)` - Search Amazon for books using Rainforest API
   - Returns: Array of book results
+
+- `searchAnnasArchive(query, options)` - Search Anna's Archive directly (bypasses Rainforest API)
+  - Parameters:
+    - `query` (string) - Search query (title or partial match)
+    - `options` (object, optional):
+      - `maxResults` (number) - Maximum results to return (default: 10)
+      - `format` (string) - Filter by format: 'pdf', 'epub', or 'all' (default: 'pdf')
+      - `sortBy` (string) - Sort by: 'newest' or 'relevance' (default: 'newest')
+  - Returns: Array of search results with structure:
+    ```javascript
+    [{
+      index: 1,
+      title: "Book Title",
+      author: "Author Name",
+      format: "pdf",
+      sizeInMB: 12.5,
+      href: "/md5/abc123...",
+      url: "https://annas-archive.org/md5/abc123..."
+    }]
+    ```
 
 - `getAnnasArchiveUrl(asin)` - Get Anna's Archive URL
   - Returns: String URL

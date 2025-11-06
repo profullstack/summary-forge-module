@@ -29,4 +29,5 @@ Thumbs.db
 dist/
 build/
 uploads/
-puppeteer_ddg_profile*/
+puppeteer_*/
+puppeteer_*/

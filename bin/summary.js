@@ -346,21 +346,112 @@ program
   });
 
 program
-  .command('search')
-  .description('Search for a book by title (interactive)')
-  .action(async () => {
+  .command('search <query>')
+  .description('Search Anna\'s Archive directly by title or partial match (bypasses Amazon/Rainforest API)')
+  .option('-n, --max-results <number>', 'Maximum number of results to display', '10')
+  .option('-f, --format <format>', 'File format filter: pdf, epub, pdf,epub, or all', 'pdf')
+  .option('-s, --sort <sort>', 'Sort by: date (newest) or leave empty for relevance', '')
+  .option('-l, --language <language>', 'Language code(s), comma-separated (e.g., en, es, fr)', 'en')
+  .option('--sources <sources>', 'Data sources, comma-separated (e.g., zlib,lgli,lgrs)', 'zlib,lgli,lgrs')
+  .action(async (query, options) => {
     try {
-      const { title } = await inquirer.prompt([
+      const forge = await createForge();
+      
+      const maxResults = parseInt(options.maxResults, 10);
+      
+      const spinner = ora(`Searching Anna's Archive for "${query}"...`).start();
+      
+      const results = await forge.searchAnnasArchive(query, {
+        maxResults,
+        format: options.format,
+        sortBy: options.sort,
+        language: options.language,
+        sources: options.sources
+      });
+      
+      spinner.stop();
+      
+      if (results.length === 0) {
+        console.log(chalk.yellow('\n📚 No results found'));
+        return;
+      }
+      
+      console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+      
+      // Display results
+      results.forEach((result, idx) => {
+        console.log(chalk.white(`${idx + 1}. ${result.title}`));
+        if (result.author) {
+          console.log(chalk.gray(`   Author: ${result.author}`));
+        }
+        console.log(chalk.gray(`   Format: ${result.format.toUpperCase()} | Size: ${result.sizeInMB.toFixed(1)} MB`));
+        console.log(chalk.cyan(`   URL: ${result.url}`));
+        console.log('');
+      });
+      
+      // Ask user to select a book
+      const { selectedIndex } = await inquirer.prompt([
         {
-          type: 'input',
-          name: 'title',
-          message: 'Enter book title:',
-          validate: (input) => input.trim().length > 0 || 'Title is required'
+          type: 'list',
+          name: 'selectedIndex',
+          message: 'Select a book to download:',
+          choices: [
+            ...results.map((result, idx) => ({
+              name: `${result.title} (${result.format.toUpperCase()}, ${result.sizeInMB.toFixed(1)} MB)`,
+              value: idx
+            })),
+            { name: chalk.gray('Cancel'), value: -1 }
+          ],
+          pageSize: 15
         }
       ]);
-
-      await searchAndDisplay(title);
-
+      
+      if (selectedIndex === -1) {
+        console.log(chalk.gray('Cancelled.'));
+        return;
+      }
+      
+      const selectedBook = results[selectedIndex];
+      
+      // Extract MD5 hash from URL to use as ASIN
+      const md5Match = selectedBook.href.match(/\/md5\/([a-f0-9]+)/);
+      const asin = md5Match ? md5Match[1] : `aa_${Date.now()}`;
+      
+      // Download the book
+      const downloadSpinner = ora('Downloading from Anna\'s Archive...').start();
+      try {
+        const download = await forge.downloadFromAnnasArchive(asin, '.', selectedBook.title);
+        downloadSpinner.stop();
+        
+        console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
+        
+        const { shouldProcess } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'shouldProcess',
+            message: 'Would you like to process this book now?',
+            default: true
+          }
+        ]);
+        
+        if (shouldProcess) {
+          downloadSpinner.start('Processing book...');
+          const result = await forge.processFile(download.filepath, download.asin);
+          downloadSpinner.stop();
+          console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+          
+          // Display cost summary
+          console.log(chalk.blue('\n💰 Cost Summary:'));
+          console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
+          console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
+          console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
+          console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+        }
+      } catch (error) {
+        downloadSpinner.stop();
+        console.error(chalk.red(`\n❌ Download failed: ${error.message}`));
+      }
+      
     } catch (error) {
       console.error(chalk.red(`\n❌ Error: ${error.message}`));
       process.exit(1);
