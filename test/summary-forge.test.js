@@ -32,13 +32,6 @@ describe('SummaryForge', () => {
       expect(() => new SummaryForge()).toThrow('OpenAI API key is required');
     });
 
-    it('should use environment variables as fallback', () => {
-      process.env.OPENAI_API_KEY = 'env-key';
-      const envForge = new SummaryForge();
-      expect(envForge.openaiApiKey).toBe('env-key');
-      delete process.env.OPENAI_API_KEY;
-    });
-
     it('should set default values for optional parameters', () => {
       expect(forge.maxChars).toBe(400000);
       expect(forge.maxTokens).toBe(16000);

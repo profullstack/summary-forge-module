@@ -1,12 +1,10 @@
 /**
  * Tests for config utility
  * 
- * Testing Framework: Mocha
- * Assertions: Chai
+ * Testing Framework: Vitest
  */
 
-import { expect } from 'chai';
-import { describe, it, beforeEach, afterEach } from 'mocha';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -19,31 +17,26 @@ import {
 } from '../src/utils/config.js';
 
 describe('Config Utility', () => {
-  const testConfigDir = path.join(os.tmpdir(), 'summary-forge-test');
-  const testConfigPath = path.join(testConfigDir, 'settings.json');
-  
   // Override config path for testing
   const originalHome = process.env.HOME;
+  let testHome;
   
   beforeEach(async () => {
-    // Set up test environment
-    process.env.HOME = os.tmpdir();
+    // Create unique test directory for each test
+    testHome = path.join(os.tmpdir(), `summary-forge-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await fs.mkdir(testHome, { recursive: true });
     
-    // Clean up any existing test config
-    try {
-      await fs.rm(testConfigDir, { recursive: true, force: true });
-    } catch (err) {
-      // Ignore if doesn't exist
-    }
+    // Set up test environment
+    process.env.HOME = testHome;
   });
   
   afterEach(async () => {
     // Restore original HOME
     process.env.HOME = originalHome;
     
-    // Clean up test config
+    // Clean up test directory
     try {
-      await fs.rm(testConfigDir, { recursive: true, force: true });
+      await fs.rm(testHome, { recursive: true, force: true });
     } catch (err) {
       // Ignore if doesn't exist
     }
@@ -52,16 +45,16 @@ describe('Config Utility', () => {
   describe('getConfigPath()', () => {
     it('should return path in ~/.config/summary-forge/', () => {
       const configPath = getConfigPath();
-      expect(configPath).to.include('.config');
-      expect(configPath).to.include('summary-forge');
-      expect(configPath).to.include('settings.json');
+      expect(configPath).toContain('.config');
+      expect(configPath).toContain('summary-forge');
+      expect(configPath).toContain('settings.json');
     });
   });
 
   describe('hasConfig()', () => {
     it('should return false when config does not exist', async () => {
       const exists = await hasConfig();
-      expect(exists).to.be.false;
+      expect(exists).toBe(false);
     });
 
     it('should return true when config exists', async () => {
@@ -72,7 +65,7 @@ describe('Config Utility', () => {
       await saveConfig(config);
       
       const exists = await hasConfig();
-      expect(exists).to.be.true;
+      expect(exists).toBe(true);
     });
   });
 
@@ -90,7 +83,7 @@ describe('Config Utility', () => {
       const fileContent = await fs.readFile(configPath, 'utf8');
       const savedConfig = JSON.parse(fileContent);
       
-      expect(savedConfig).to.deep.equal(config);
+      expect(savedConfig).toEqual(config);
     });
 
     it('should create directory if it does not exist', async () => {
@@ -99,7 +92,7 @@ describe('Config Utility', () => {
       await saveConfig(config);
       
       const exists = await hasConfig();
-      expect(exists).to.be.true;
+      expect(exists).toBe(true);
     });
 
     it('should overwrite existing config', async () => {
@@ -110,7 +103,7 @@ describe('Config Utility', () => {
       await saveConfig(config2);
       
       const loaded = await loadConfig();
-      expect(loaded.openaiApiKey).to.equal('new-key');
+      expect(loaded.openaiApiKey).toBe('new-key');
     });
 
     it('should handle optional fields', async () => {
@@ -123,15 +116,15 @@ describe('Config Utility', () => {
       await saveConfig(config);
       const loaded = await loadConfig();
       
-      expect(loaded.headless).to.be.true;
-      expect(loaded.enableProxy).to.be.false;
+      expect(loaded.headless).toBe(true);
+      expect(loaded.enableProxy).toBe(false);
     });
   });
 
   describe('loadConfig()', () => {
     it('should return null when config does not exist', async () => {
       const config = await loadConfig();
-      expect(config).to.be.null;
+      expect(config).toBeNull();
     });
 
     it('should load saved config', async () => {
@@ -145,7 +138,7 @@ describe('Config Utility', () => {
       await saveConfig(config);
       const loaded = await loadConfig();
       
-      expect(loaded).to.deep.equal(config);
+      expect(loaded).toEqual(config);
     });
 
     it('should handle malformed JSON gracefully', async () => {
@@ -154,7 +147,7 @@ describe('Config Utility', () => {
       await fs.writeFile(configPath, 'invalid json{', 'utf8');
       
       const config = await loadConfig();
-      expect(config).to.be.null;
+      expect(config).toBeNull();
     });
   });
 
@@ -163,16 +156,16 @@ describe('Config Utility', () => {
       const config = { openaiApiKey: 'test' };
       await saveConfig(config);
       
-      expect(await hasConfig()).to.be.true;
+      expect(await hasConfig()).toBe(true);
       
       await deleteConfig();
       
-      expect(await hasConfig()).to.be.false;
+      expect(await hasConfig()).toBe(false);
     });
 
     it('should not throw when config does not exist', async () => {
       await deleteConfig(); // Should not throw
-      expect(await hasConfig()).to.be.false;
+      expect(await hasConfig()).toBe(false);
     });
   });
 });
