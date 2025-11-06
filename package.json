@@ -46,12 +46,18 @@
     "commander": "^12.1.0",
     "dotenv": "^16.6.1",
     "elevenlabs": "^0.8.2",
+    "https-proxy-agent": "^7.0.6",
     "inquirer": "^10.2.2",
+    "node-fetch": "^3.3.2",
     "openai": "^6.8.1",
     "ora": "^8.1.0",
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.17.2",
-    "puppeteer": "^23.11.1"
+    "proxy-chain": "^2.5.9",
+    "puppeteer": "^23.11.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-proxy": "^1.0.2",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",

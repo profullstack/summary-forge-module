@@ -87,8 +87,8 @@ summary setup
 This interactive command will prompt you for:
 - **OpenAI API Key** (required)
 - **Rainforest API Key** (optional - for Amazon book search)
-- **ElevenLabs API Key** (optional - for audio generation)
-- **2Captcha API Key** (optional - for CAPTCHA solving)
+- **ElevenLabs API Key** (optional - for audio generation, [get key here](https://try.elevenlabs.io/oh7kgotrpjnv))
+- **2Captcha API Key** (optional - for CAPTCHA solving, [sign up here](https://2captcha.com/?from=9630996))
 - **Browserless API Key** (optional)
 - Browser and proxy settings
 
@@ -181,8 +181,8 @@ const forge = new SummaryForge({
   
   // Optional API keys
   rainforestApiKey: 'your-key',      // For Amazon search
-  elevenlabsApiKey: 'sk-...',        // For audio generation
-  twocaptchaApiKey: 'your-key',      // For CAPTCHA solving
+  elevenlabsApiKey: 'sk-...',        // For audio generation (get key: https://try.elevenlabs.io/oh7kgotrpjnv)
+  twocaptchaApiKey: 'your-key',      // For CAPTCHA solving (sign up: https://2captcha.com/?from=9630996)
   browserlessApiKey: 'your-key',     // For browserless.io
   
   // Processing options
@@ -327,15 +327,65 @@ When using the module programmatically, configuration is loaded in this order (h
 2. **Environment variables** - From `.env` file or shell
 3. **Config file** - From `~/.config/summary-forge/settings.json` (CLI only)
 
+### Proxy Configuration (Recommended for Anna's Archive)
+
+To avoid IP bans when downloading from Anna's Archive, configure a proxy during setup:
+
+```bash
+summary setup
+```
+
+When prompted:
+1. Enable proxy: `Yes`
+2. Enter proxy URL: `http://your-proxy.com:8080`
+3. Enter proxy username and password
+
+**Why use a proxy?**
+- ✅ Avoids IP bans from Anna's Archive
+- ✅ USA-based proxies prevent geo-location issues
+- ✅ Works with both browser navigation and file downloads
+- ✅ Automatically applied to all download operations
+
+**Recommended Proxy Service:**
+
+We recommend [Webshare.io](https://www.webshare.io/?referral_code=wwry9z1eiyjg) for reliable, USA-based proxies:
+- 🌎 USA-based IPs (no geo-location issues)
+- ⚡ Fast and reliable
+- 💰 Affordable pricing with free tier
+- 🔒 HTTP/HTTPS/SOCKS5 support
+
+**Important: Use Static Proxies for Sticky Sessions**
+
+For Anna's Archive downloads, you need a **static/direct proxy** (not rotating) to maintain the same IP:
+
+1. In your Webshare dashboard, go to **Proxy** → **List**
+2. Copy a **Static Proxy** endpoint (not the rotating endpoint)
+3. Use the format: `http://host:port` (e.g., `http://45.95.96.132:8080`)
+4. Username format: `dmdgluqz-US-{session_id}` (session ID added automatically)
+
+The tool automatically generates a unique session ID for each download to get a fresh IP, while maintaining that IP throughout the 5-10 minute download process.
+
+**Note:** Rotating proxies (`p.webshare.io`) don't support sticky sessions. Use individual static proxy IPs from your proxy list instead.
+
+**Testing your proxy:**
+```bash
+node test-proxy.js <ASIN>
+```
+
+This will verify your proxy configuration by attempting to download a book.
+
 ### Audio Generation
 
-Audio generation is **optional** and requires an ElevenLabs API key. If the key is not provided, the tool will skip audio generation and only create text-based outputs.
+Audio generation is **optional** and requires an [ElevenLabs](https://try.elevenlabs.io/oh7kgotrpjnv) API key. If the key is not provided, the tool will skip audio generation and only create text-based outputs.
+
+**Get ElevenLabs API Key:** [Sign up here](https://try.elevenlabs.io/oh7kgotrpjnv) for high-quality text-to-speech.
 
 **Features:**
 - Uses ElevenLabs Turbo v2.5 model (optimized for audiobooks)
 - Default voice: Brian (best for technical content, customizable)
 - Automatically truncates long texts to fit API limits
 - Generates high-quality MP3 audio files
+- Natural, conversational narration style
 
 ## Output
 
@@ -422,13 +472,71 @@ See the [`examples/`](examples/) directory for more usage examples:
 
 - [`programmatic-usage.js`](examples/programmatic-usage.js) - Using as a module
 
+## Troubleshooting
+
+### IP Bans from Anna's Archive
+
+If you're getting blocked by Anna's Archive:
+
+1. **Enable proxy** in your configuration:
+   ```bash
+   summary setup
+   ```
+   
+2. **Use a USA-based proxy** to avoid geo-location issues
+
+3. **Test your proxy** before downloading:
+   ```bash
+   node test-proxy.js B0BCTMXNVN
+   ```
+
+4. **Run browser in visible mode** to debug:
+   ```bash
+   summary config --headless false
+   ```
+
+### Proxy Configuration
+
+The proxy is used for:
+- ✅ Browser navigation (Puppeteer)
+- ✅ File downloads (fetch with https-proxy-agent)
+- ✅ All HTTP requests to Anna's Archive
+
+Supported proxy formats:
+- `http://proxy.example.com:8080`
+- `https://proxy.example.com:8080`
+- `socks5://proxy.example.com:1080`
+- `http://proxy.example.com:8080-session-<SESSION_ID>` (sticky session)
+
+**Recommended Service:** [Webshare.io](https://www.webshare.io/?referral_code=wwry9z1eiyjg) - Reliable USA-based proxies with free tier available.
+
+**Webshare Sticky Sessions:**
+Add `-session-<YOUR_SESSION_ID>` to your proxy URL to maintain the same IP:
+```
+http://p.webshare.io:80-session-myapp123
+```
+
+## CAPTCHA Solving
+
+When downloading from Anna's Archive, you may encounter CAPTCHAs. To automatically solve them:
+
+1. **Sign up for 2Captcha**: [Get API key here](https://2captcha.com/?from=9630996)
+2. **Add to configuration**:
+   ```bash
+   summary setup
+   ```
+3. **Enter your 2Captcha API key** when prompted
+
+The tool will automatically detect and solve CAPTCHAs during downloads, making the process fully automated.
+
 ## Limitations
 
 - Maximum PDF file size: ~100MB (OpenAI vision API limit is 512MB)
 - GPT-5 uses default temperature of 1 (not configurable)
 - Requires external tools: Calibre, Pandoc, XeLaTeX
-- CAPTCHA solving requires 2captcha.com API key (optional)
+- CAPTCHA solving requires [2captcha.com](https://2captcha.com/?from=9630996) API key (optional)
 - Large PDFs may incur higher API costs due to vision processing
+- Anna's Archive may block IPs without proxy configuration
 
 ## Roadmap
 

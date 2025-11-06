@@ -10,7 +10,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import OpenAI from "openai";
 import { ElevenLabsClient } from "elevenlabs";
-import puppeteer from "puppeteer";
+import puppeteer from 'puppeteer';
 import { PDFParse } from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 
@@ -42,6 +42,9 @@ export class SummaryForge {
     if (!this.openaiApiKey) {
       throw new Error("OpenAI API key is required");
     }
+    
+    // Session ID for sticky proxy sessions (maintains same IP)
+    this.proxySessionId = null;
     
     this.openai = new OpenAI({ apiKey: this.openaiApiKey });
     this.maxChars = config.maxChars ?? 400000;
@@ -220,7 +223,15 @@ export class SummaryForge {
         sitekey = captchaDiv.getAttribute('data-sitekey');
       }
       
-      // Method 2: Look for hCaptcha iframe
+      // Method 2: Look for any element with data-sitekey
+      if (!sitekey) {
+        const sitekeyEl = document.querySelector('[data-sitekey]');
+        if (sitekeyEl) {
+          sitekey = sitekeyEl.getAttribute('data-sitekey');
+        }
+      }
+      
+      // Method 3: Look for hCaptcha iframe
       if (!sitekey) {
         const hcaptchaIframe = document.querySelector('iframe[src*="hcaptcha.com"]');
         if (hcaptchaIframe) {
@@ -230,15 +241,34 @@ export class SummaryForge {
         }
       }
       
-      // Method 3: Look in script tags
+      // Method 4: Look in script tags for various patterns
       if (!sitekey) {
         const scripts = Array.from(document.querySelectorAll('script'));
         for (const script of scripts) {
-          const match = script.textContent.match(/sitekey["\s:=]+["']([^"']+)["']/i);
-          if (match) {
-            sitekey = match[1];
-            break;
+          // Try multiple regex patterns
+          const patterns = [
+            /sitekey["\s:=]+["']([^"']+)["']/i,
+            /"sitekey"\s*:\s*"([^"]+)"/i,
+            /data-sitekey=["']([^"']+)["']/i,
+            /hcaptcha\.com\/1\/api\.js\?.*sitekey=([^&"']+)/i
+          ];
+          
+          for (const pattern of patterns) {
+            const match = script.textContent.match(pattern);
+            if (match) {
+              sitekey = match[1];
+              break;
+            }
           }
+          if (sitekey) break;
+        }
+      }
+      
+      // Method 5: Look in page HTML source
+      if (!sitekey) {
+        const htmlMatch = document.documentElement.outerHTML.match(/data-sitekey=["']([^"']+)["']/i);
+        if (htmlMatch) {
+          sitekey = htmlMatch[1];
         }
       }
 
@@ -404,6 +434,10 @@ export class SummaryForge {
     console.log(`🌐 Navigating to: ${url}`);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
+    // Wait for DDoS protection to complete (if present)
+    console.log(`⏳ Waiting for DDoS protection check...`);
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
     // Check and solve CAPTCHA if present
     const captchaSolved = await this.solveCaptcha(page);
     
@@ -515,41 +549,50 @@ export class SummaryForge {
     if (bookTitle) {
       console.log(`📖 Book title from search: ${bookTitle}`);
     }
-    console.log(`� Search URL: ${searchUrl}`);
+    console.log(`🔍 Search URL: ${searchUrl}`);
     
-    // Configure browser launch options with proxy if available
-    const launchOptions = {
-      headless: this.headless,
-      devtools: !this.headless, // Open DevTools when browser is visible
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled'
-      ]
-    };
+    // Simple proxy setup like test-just-proxy.js
+    // Session ID must be between 1-36 for Webshare
+    const sessionId = Math.floor(Math.random() * 36) + 1;
+    const proxyUrlObj = new URL(this.proxyUrl);
+    const proxyHost = proxyUrlObj.hostname;
+    const proxyPort = parseInt(proxyUrlObj.port) || 80;
+    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    const proxyPassword = this.proxyPassword;
     
-    if (!this.headless) {
-      console.log(`🖥️  Running browser in visible mode with DevTools (headless: false)`);
+    console.log(`🔒 Proxy session: ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    
+    // Initialize proxy session with curl to establish the session
+    console.log(`🔄 Initializing proxy session ${sessionId}...`);
+    try {
+      const { exec } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execAsync = promisify(exec);
+      
+      const curlCmd = `curl --proxy "http://${proxyUsername}:${proxyPassword}@${proxyHost}:${proxyPort}" https://ipv4.webshare.io/`;
+      const { stdout, stderr } = await execAsync(curlCmd);
+      if (stderr) {
+        console.log(`⚠️  Curl stderr: ${stderr}`);
+      }
+      console.log(`✅ Proxy session initialized, IP: ${stdout.trim()}`);
+    } catch (err) {
+      console.log(`⚠️  Proxy init failed: ${err.message}`);
+      console.log(`   Continuing anyway - Puppeteer will try to establish the session`);
     }
     
-    // Add proxy configuration if enabled and available
-    if (this.enableProxy && this.proxyUrl && this.proxyUsername && this.proxyPassword) {
-      console.log(`🔒 Using proxy: ${this.proxyUrl}`);
-      launchOptions.args.push(`--proxy-server=${this.proxyUrl}`);
-    }
-    
-    const browser = await puppeteer.launch(launchOptions);
+    const browser = await puppeteer.launch({
+      headless: false,
+      args: [`--proxy-server=${proxyHost}:${proxyPort}`],
+    });
     
     try {
       const page = await browser.newPage();
       
-      // Authenticate with proxy if enabled and credentials are provided
-      if (this.enableProxy && this.proxyUrl && this.proxyUsername && this.proxyPassword) {
-        await page.authenticate({
-          username: this.proxyUsername,
-          password: this.proxyPassword
-        });
-      }
+      // Authenticate before any navigation
+      await page.authenticate({
+        username: proxyUsername,
+        password: proxyPassword,
+      });
       
       // Set a realistic user agent
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -575,7 +618,7 @@ export class SummaryForge {
       }
       
       // Step 2: Get the first PDF result (Anna's Archive sorts by best match)
-      await page.waitForSelector('.js-aarecord-list-outer', { timeout: 10000 });
+      await page.waitForSelector('.js-aarecord-list-outer', { timeout: 30000 });
       
       // Get the first result only
       const firstResult = await page.$eval('.js-aarecord-list-outer', (container) => {
@@ -757,6 +800,9 @@ export class SummaryForge {
     } catch (error) {
       await browser.close();
       throw new Error(`Failed to download from Anna's Archive: ${error.message}`);
+    } finally {
+      // Clear session ID after download completes
+      this.proxySessionId = null;
     }
   }
 
