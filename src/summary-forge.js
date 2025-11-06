@@ -641,8 +641,8 @@ export class SummaryForge {
     
     console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of 36)`);
     
-    // Use a persistent profile to help DDoS-Guard recognize the browser across runs
-    const userDataDir = './puppeteer_ddg_profile';
+    // Use a unique profile per session to avoid conflicts between runs
+    const userDataDir = `./puppeteer_ddg_profile_${sessionId}_${Date.now()}`;
     
     const browser = await puppeteer.launch({
       headless: this.headless,
@@ -655,6 +655,20 @@ export class SummaryForge {
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
     });
+    
+    // Handle Ctrl-C to close browser gracefully
+    const cleanup = async () => {
+      console.log('\n🛑 Interrupted - closing browser...');
+      try {
+        await browser.close();
+      } catch (e) {
+        // Browser might already be closed
+      }
+      process.exit(0);
+    };
+    
+    process.once('SIGINT', cleanup);
+    process.once('SIGTERM', cleanup);
     
     try {
       const page = await browser.newPage();
@@ -671,25 +685,71 @@ export class SummaryForge {
       // This provides credentials for basic auth challenges (including many proxies).
       await page.authenticate({ username: proxyUsername, password: proxyPassword });
       
-      // Step 1: Go to search page with retry
-      let retries = 3;
-      while (retries > 0) {
-        try {
-          await page.goto(searchUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: 60000
-          });
-          break;
-        } catch (err) {
-          retries--;
-          if (retries === 0) throw err;
-          console.log(`⚠️  Network error, retrying... (${retries} attempts left)`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
+      // Step 1: Go to search page with DDoS-Guard bypass
+      console.log(`🌐 Navigating to search page...`);
+      const navOptions = { waitUntil: 'domcontentloaded', timeout: 90000 };
+      await page.goto(searchUrl, navOptions);
+      
+      // Handle DDoS-Guard on search page
+      const clicked = await page.evaluate(async () => {
+        function matchesText(el, re) {
+          try {
+            return el && el.innerText && re.test(el.innerText.trim());
+          } catch (e) {
+            return false;
+          }
         }
+        const RE = /(verify|continue|i am not a robot|i'm not a robot|check your browser|proceed|allow)/i;
+        const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a'));
+        for (const b of buttons) {
+          if (matchesText(b, RE)) {
+            try {
+              b.click();
+              return { clicked: true, text: b.innerText || b.value || 'button' };
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+        return { clicked: false };
+      });
+
+      if (clicked && clicked.clicked) {
+        console.log('✅ Clicked challenge button on search page:', clicked.text);
+      }
+
+      // Wait for DDoS-Guard clearance on search page
+      console.log('⏳ Waiting for DDoS-Guard clearance on search page...');
+      const haveCookies = await this.waitForDdgCookies(page, 60000);
+      if (haveCookies) {
+        console.log('✅ DDoS-Guard cleared on search page');
+        // Wait for redirect
+        try {
+          await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 });
+          console.log('✅ Search page redirect completed');
+        } catch (e) {
+          console.log('ℹ️  No redirect on search page, reloading...');
+          // Sometimes we need to reload after getting cookies
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
       
       // Step 2: Get the first PDF result (Anna's Archive sorts by best match)
-      await page.waitForSelector('.js-aarecord-list-outer', { timeout: 30000 });
+      console.log('🔍 Looking for search results...');
+      
+      // Check if we're still on a challenge page
+      const pageContent = await page.content();
+      if (pageContent.includes('checking your browser') || pageContent.includes('DDoS-Guard')) {
+        console.log('⚠️  Still on DDoS-Guard page, waiting longer...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // Try reloading one more time
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+      
+      await page.waitForSelector('.js-aarecord-list-outer', { timeout: 90000 });
       
       // Get the first result only
       const firstResult = await page.$eval('.js-aarecord-list-outer', (container) => {
@@ -823,24 +883,18 @@ export class SummaryForge {
             continue;
           }
           
-          // Download the file using fetch (with proxy if enabled)
-          let fetchOptions = {};
+          // Download the file using Puppeteer (reuses the same session with cookies)
+          console.log(`📥 Downloading file via Puppeteer (same session)...`);
+          const downloadResponse = await page.goto(downloadUrl, {
+            waitUntil: 'domcontentloaded',  // Don't wait for network idle (file downloads can take time)
+            timeout: 300000  // 5 minutes for large files
+          });
           
-          if (this.enableProxy) {
-            const { HttpsProxyAgent } = await import('https-proxy-agent');
-            const proxyAgent = new HttpsProxyAgent(`http://${proxyUsername}:${proxyPassword}@${proxyHost}:${proxyPort}`, {
-              rejectUnauthorized: false  // Ignore invalid SSL certificates
-            });
-            fetchOptions.agent = proxyAgent;
-            console.log(`📥 Downloading via proxy...`);
+          if (!downloadResponse || !downloadResponse.ok()) {
+            throw new Error(`HTTP ${downloadResponse?.status() || 'unknown'}`);
           }
           
-          const response = await fetch(downloadUrl, fetchOptions);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-          
-          const buffer = await response.arrayBuffer();
+          const buffer = await downloadResponse.buffer();
           
           // Should always be PDF now
           const ext = '.pdf';
@@ -881,6 +935,18 @@ export class SummaryForge {
       await browser.close();
       throw new Error(`Failed to download from Anna's Archive: ${error.message}`);
     } finally {
+      // Remove signal handlers
+      process.removeListener('SIGINT', cleanup);
+      process.removeListener('SIGTERM', cleanup);
+      
+      // Clean up browser profile directory
+      try {
+        await fsp.rm(userDataDir, { recursive: true, force: true });
+        console.log(`🗑️  Cleaned up browser profile`);
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+      
       // Clear session ID after download completes
       this.proxySessionId = null;
     }
