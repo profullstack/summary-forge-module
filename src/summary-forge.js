@@ -1,7 +1,7 @@
 /**
  * Summary Forge - Core Module
- * 
- * An intelligent tool that uses AI to create comprehensive summaries of technical books
+ *
+ * An intelligent tool that uses AI to create comprehensive summaries of books in multiple formats
  */
 
 import fs from "node:fs";
@@ -52,7 +52,7 @@ export class SummaryForge {
     }
     
     // ElevenLabs voice settings
-    this.voiceId = config.voiceId ?? "nPczCjzI2devNBz1zQrb"; // Default: Brian voice (best for technical books)
+    this.voiceId = config.voiceId ?? "nPczCjzI2devNBz1zQrb"; // Default: Brian voice (best for books)
     this.voiceSettings = config.voiceSettings ?? {
       stability: 0.5,
       similarity_boost: 0.75,
@@ -577,7 +577,7 @@ export class SummaryForge {
           const hasEpubExtension = /\.epub\b/i.test(text) || /\bepub\s*,/i.test(text);
           const hasPdfExtension = /\.pdf\b/i.test(text) || /\bpdf\s*,/i.test(text);
           
-          // Extract file size to help filter quality (larger is often better for technical books)
+          // Extract file size to help filter quality (larger is often better for books)
           const sizeMatch = text.match(/(\d+(?:\.\d+)?)\s*(KB|MB|GB)/i);
           let sizeInMB = 0;
           if (sizeMatch) {
@@ -600,7 +600,7 @@ export class SummaryForge {
           if (hasScihub) qualityScore += 2;
           if (hasZlib) qualityScore += 2;
           if (hasEpubExtension) qualityScore += 5; // EPUB is usually better quality
-          if (sizeInMB > 5) qualityScore += 2; // Larger files often better quality
+          if (sizeInMB > 5) qualityScore += 2; // Larger files often indicate better quality
           if (sizeInMB > 20) qualityScore += 1; // But not too large (might be scanned)
           if (isScanned) qualityScore -= 10; // Heavily penalize scanned documents
           
