@@ -575,8 +575,6 @@ async function searchAndDisplay(title, force = false) {
       downloadSpinner.stop();
       
       console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
-      console.log(chalk.blue(`\n🛒 Buy on Amazon (affiliate link):`));
-      console.log(chalk.cyan(`   https://www.amazon.com/dp/${selectedBook.asin}?tag=summaryforge-20\n`));
       
       let shouldProcess = true;
       

@@ -404,10 +404,6 @@ export class SummaryForge {
     console.log(`🌐 Navigating to: ${url}`);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    // Wait 10 seconds for DDoS-Guard page to load CAPTCHA or auto-redirect
-    console.log("⏳ Waiting 10 seconds for DDoS-Guard CAPTCHA/redirect...");
-    await new Promise(resolve => setTimeout(resolve, 10000));
-
     // Check and solve CAPTCHA if present
     const captchaSolved = await this.solveCaptcha(page);
     
@@ -416,10 +412,6 @@ export class SummaryForge {
       await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {
         console.log("⚠️ No navigation detected after CAPTCHA solve");
       });
-      
-      // Wait another 10 seconds after solving for any additional redirects
-      console.log("⏳ Waiting 10 seconds for post-CAPTCHA redirect...");
-      await new Promise(resolve => setTimeout(resolve, 10000));
     }
 
     // Get final page content
