@@ -10,6 +10,7 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 - 🤖 **AI-Powered Summaries**: Uses GPT-5 with direct PDF upload for better quality
 - 📊 **Vision API**: Preserves formatting, tables, diagrams, and images from PDFs
 - 🧩 **Intelligent Chunking**: Automatically processes large PDFs (500+ pages) without truncation
+- 🛡️ **Directory Protection**: Prompts before overwriting existing summaries (use --force to skip)
 - 📦 **Multiple Output Formats**: Creates Markdown, PDF, EPUB, plain text, and MP3 audio summaries
 - 🃏 **Printable Flashcards**: Generates double-sided flashcard PDFs for studying
 - 🎙️ **Natural Audio Narration**: AI-generated conversational audio script for better listening
@@ -130,6 +131,10 @@ This launches an interactive menu where you can:
 ```bash
 summary file /path/to/book.pdf
 summary file /path/to/book.epub
+
+# Force overwrite if directory already exists
+summary file /path/to/book.pdf --force
+summary file /path/to/book.pdf -f
 ```
 
 ### Search by Title
@@ -146,6 +151,10 @@ summary search
 
 ```bash
 summary isbn B075HYVHWK
+
+# Force overwrite if directory already exists
+summary isbn B075HYVHWK --force
+summary isbn B075HYVHWK -f
 ```
 
 ### Help

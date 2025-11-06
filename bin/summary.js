@@ -283,9 +283,32 @@ program
 program
   .command('file <path>')
   .description('Process a PDF or EPUB file')
-  .action(async (filePath) => {
+  .option('-f, --force', 'Overwrite existing directory without prompting')
+  .action(async (filePath, options) => {
     try {
-      const forge = await createForge();
+      const config = await loadConfig();
+      config.force = options.force || false;
+      
+      // Add prompt function for interactive mode
+      if (!config.force) {
+        config.promptFn = async (dirPath) => {
+          const { action } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'action',
+              message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+              choices: [
+                { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+                { name: 'Skip (cancel operation)', value: 'skip' },
+                { name: 'Cancel', value: 'cancel' }
+              ]
+            }
+          ]);
+          return action;
+        };
+      }
+      
+      const forge = new SummaryForge(config);
       const result = await forge.processFile(path.resolve(filePath));
       
       console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
@@ -337,18 +360,51 @@ program
   .command('isbn <asin>')
   .description('Download and process a book by ISBN/ASIN from Anna\'s Archive')
   .option('--no-download', 'Skip download and just show URL')
+  .option('-f, --force', 'Overwrite existing directory without prompting')
   .action(async (asin, options) => {
     try {
-      const forge = await createForge();
+      // Load config first
+      const config = await loadConfig();
       
+      if (!config) {
+        console.log(chalk.yellow('\n⚠️  No configuration found. Please run "summary setup" first.\n'));
+        process.exit(1);
+      }
+      
+      // Check if just showing URL
       if (options.download === false) {
-        const url = forge.getAnnasArchiveUrl(asin);
+        const tempForge = new SummaryForge(config);
+        const url = tempForge.getAnnasArchiveUrl(asin);
         console.log(chalk.blue(`\n🌐 Anna's Archive URL:`));
         console.log(chalk.cyan(url));
         console.log(chalk.yellow(`\n⚠️  Please download the EPUB manually, then run:`));
         console.log(chalk.white(`   summary file /path/to/downloaded/book.epub\n`));
         return;
       }
+      
+      // Set up directory protection
+      config.force = options.force || false;
+      
+      // Add prompt function for interactive mode
+      if (!config.force) {
+        config.promptFn = async (dirPath) => {
+          const { action } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'action',
+              message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+              choices: [
+                { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+                { name: 'Skip (cancel operation)', value: 'skip' },
+                { name: 'Cancel', value: 'cancel' }
+              ]
+            }
+          ]);
+          return action;
+        };
+      }
+      
+      const forge = new SummaryForge(config);
       
       const spinner = ora('Downloading from Anna\'s Archive...').start();
       const download = await forge.downloadFromAnnasArchive(asin);

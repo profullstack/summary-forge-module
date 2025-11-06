@@ -17,6 +17,7 @@ puppeteer.use(StealthPlugin());
 import { PDFParse } from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize } from "./utils/pdf-chunker.js";
+import { ensureDirectory, getDirectoryContents } from "./utils/directory-protection.js";
 
 const API_MODEL = "gpt-5";
 
@@ -43,6 +44,10 @@ export class SummaryForge {
     this.proxyUsername = config.proxyUsername;
     this.proxyPassword = config.proxyPassword;
     this.proxyPoolSize = config.proxyPoolSize ?? 100; // Default to 100 if not specified
+    
+    // Directory overwrite protection
+    this.force = config.force ?? false;
+    this.promptFn = config.promptFn ?? null; // For interactive prompts
     
     if (!this.openaiApiKey) {
       throw new Error("OpenAI API key is required");
@@ -751,7 +756,21 @@ export class SummaryForge {
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
       
-      await page.waitForSelector('.js-aarecord-list-outer', { timeout: 90000 });
+      // Increased timeout to 120 seconds (2 minutes) to handle slow DDoS-Guard responses
+      // This is the final wait after all DDoS-Guard bypass attempts
+      console.log('⏳ Waiting for search results to load (up to 2 minutes)...');
+      try {
+        await page.waitForSelector('.js-aarecord-list-outer', { timeout: 120000 });
+        console.log('✅ Search results loaded');
+      } catch (selectorError) {
+        // Save debug info before throwing
+        const debugHtml = await page.content();
+        const debugPath = path.join(outputDir, 'debug-search-page.html');
+        await fsp.writeFile(debugPath, debugHtml, 'utf8');
+        console.error(`❌ Search results failed to load. Debug HTML saved to: ${debugPath}`);
+        console.error(`   Current URL: ${page.url()}`);
+        throw new Error(`Search results selector '.js-aarecord-list-outer' not found after 120 seconds. Page may still be on DDoS-Guard challenge or search returned no results.`);
+      }
       
       // Get the first result only
       const firstResult = await page.$eval('.js-aarecord-list-outer', (container) => {
@@ -820,9 +839,19 @@ export class SummaryForge {
       
       const bookDir = path.join(outputDir, 'uploads', dirName);
       
-      // Create directory once at the beginning
-      await fsp.mkdir(bookDir, { recursive: true });
-      console.log(`📁 Created directory: ${bookDir}`);
+      // Check for existing directory and handle overwrite protection
+      const dirResult = await ensureDirectory(bookDir, this.force, this.promptFn);
+      
+      if (!dirResult.created) {
+        console.log(`⏭️  Skipped: Directory already exists and user chose not to overwrite`);
+        throw new Error('Operation cancelled: Directory already exists');
+      }
+      
+      if (dirResult.overwritten) {
+        console.log(`🔄 Overwritten existing directory: ${bookDir}`);
+      } else {
+        console.log(`📁 Created directory: ${bookDir}`);
+      }
       
       // Check if we got an error page
       if (finalTitle.toLowerCase().includes('interrupt') ||
