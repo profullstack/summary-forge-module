@@ -11,39 +11,40 @@ import { spawn } from "node:child_process";
 import OpenAI from "openai";
 import { ElevenLabsClient } from "elevenlabs";
 import puppeteer from "puppeteer";
-import dotenv from "dotenv";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
-
-dotenv.config();
 
 const API_MODEL = "gpt-5";
 
 /**
  * Summary Forge class for creating book summaries
+ *
+ * @param {Object} config - Configuration object with all required API keys
  */
 export class SummaryForge {
-  constructor(options = {}) {
-    this.openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
-    this.rainforestApiKey = options.rainforestApiKey || process.env.RAINFOREST_API_KEY;
-    this.elevenlabsApiKey = options.elevenlabsApiKey || process.env.ELEVENLABS_API_KEY;
-    this.twocaptchaApiKey = options.twocaptchaApiKey || process.env.TWOCAPTCHA_API_KEY;
+  constructor(config = {}) {
+    // All configuration must be passed via config object
+    this.openaiApiKey = config.openaiApiKey;
+    this.rainforestApiKey = config.rainforestApiKey;
+    this.elevenlabsApiKey = config.elevenlabsApiKey;
+    this.twocaptchaApiKey = config.twocaptchaApiKey;
+    this.browserlessApiKey = config.browserlessApiKey;
     
     // Browser configuration
-    this.headless = options.headless !== undefined ? options.headless : (process.env.HEADLESS !== 'false');
+    this.headless = config.headless ?? true;
     
     // Proxy configuration
-    this.enableProxy = options.enableProxy !== undefined ? options.enableProxy : (process.env.ENABLE_PROXY === 'true');
-    this.proxyUrl = options.proxyUrl || process.env.PROXY_URL;
-    this.proxyUsername = options.proxyUsername || process.env.PROXY_USERNAME;
-    this.proxyPassword = options.proxyPassword || process.env.PROXY_PASSWORD;
+    this.enableProxy = config.enableProxy ?? false;
+    this.proxyUrl = config.proxyUrl;
+    this.proxyUsername = config.proxyUsername;
+    this.proxyPassword = config.proxyPassword;
     
     if (!this.openaiApiKey) {
       throw new Error("OpenAI API key is required");
     }
     
     this.openai = new OpenAI({ apiKey: this.openaiApiKey });
-    this.maxChars = options.maxChars || 400000;
-    this.maxTokens = options.maxTokens || 16000;
+    this.maxChars = config.maxChars ?? 400000;
+    this.maxTokens = config.maxTokens ?? 16000;
     
     // Initialize ElevenLabs client if API key is provided
     if (this.elevenlabsApiKey) {
@@ -51,8 +52,8 @@ export class SummaryForge {
     }
     
     // ElevenLabs voice settings
-    this.voiceId = options.voiceId || "nPczCjzI2devNBz1zQrb"; // Default: Brian voice (best for technical books)
-    this.voiceSettings = options.voiceSettings || {
+    this.voiceId = config.voiceId ?? "nPczCjzI2devNBz1zQrb"; // Default: Brian voice (best for technical books)
+    this.voiceSettings = config.voiceSettings ?? {
       stability: 0.5,
       similarity_boost: 0.75,
       style: 0.0,

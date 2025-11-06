@@ -20,6 +20,13 @@
 
 export { SummaryForge } from './summary-forge.js';
 export { extractFlashcards, generateFlashcardsPDF } from './flashcards.js';
+export {
+  loadConfig,
+  saveConfig,
+  hasConfig,
+  getConfigPath,
+  deleteConfig
+} from './utils/config.js';
 
 // Re-export as default for convenience
 export { SummaryForge as default } from './summary-forge.js';

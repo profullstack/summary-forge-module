@@ -74,6 +74,41 @@ pnpm add summary-forge
 
 ## CLI Usage
 
+### First-Time Setup
+
+Before using the CLI, configure your API keys:
+
+```bash
+summary setup
+```
+
+This interactive command will prompt you for:
+- **OpenAI API Key** (required)
+- **Rainforest API Key** (optional - for Amazon book search)
+- **ElevenLabs API Key** (optional - for audio generation)
+- **2Captcha API Key** (optional - for CAPTCHA solving)
+- **Browserless API Key** (optional)
+- Browser and proxy settings
+
+Configuration is saved to `~/.config/summary-forge/settings.json` and used automatically by all CLI commands.
+
+### Managing Configuration
+
+```bash
+# View current configuration
+summary config
+
+# Update configuration
+summary setup
+
+# Delete configuration
+summary config --delete
+```
+
+**Note:** The CLI will use configuration in this priority order:
+1. Environment variables (`.env` file)
+2. Configuration file (`~/.config/summary-forge/settings.json`)
+
 ### Interactive Mode (Recommended)
 
 ```bash
@@ -123,34 +158,51 @@ summary file --help
 
 ```javascript
 import { SummaryForge } from 'summary-forge';
+import { loadConfig } from 'summary-forge/config';
 
-// API keys from environment variables
-const forge = new SummaryForge();
+// Load config from ~/.config/summary-forge/settings.json
+const config = await loadConfig();
+const forge = new SummaryForge(config);
 
 const result = await forge.processFile('./my-book.pdf');
 console.log('Summary created:', result.archive);
 ```
 
-### With Custom Options
+### Configuration Options
 
 ```javascript
 import { SummaryForge } from 'summary-forge';
 
 const forge = new SummaryForge({
+  // Required
   openaiApiKey: 'sk-...',
-  rainforestApiKey: 'your-key',
-  elevenlabsApiKey: 'sk-...',  // Optional: for audio
-  maxChars: 500000,  // Process more text
-  maxTokens: 20000,  // Generate longer summaries
-  voiceId: '21m00Tcm4TlvDq8ikWAM',  // Optional: ElevenLabs voice
-  voiceSettings: {  // Optional: voice customization
+  
+  // Optional API keys
+  rainforestApiKey: 'your-key',      // For Amazon search
+  elevenlabsApiKey: 'sk-...',        // For audio generation
+  twocaptchaApiKey: 'your-key',      // For CAPTCHA solving
+  browserlessApiKey: 'your-key',     // For browserless.io
+  
+  // Processing options
+  maxChars: 500000,                  // Max chars to process
+  maxTokens: 20000,                  // Max tokens in summary
+  
+  // Audio options
+  voiceId: '21m00Tcm4TlvDq8ikWAM',  // ElevenLabs voice
+  voiceSettings: {
     stability: 0.5,
     similarity_boost: 0.75
-  }
+  },
+  
+  // Browser options
+  headless: true,                    // Run browser in headless mode
+  enableProxy: false,                // Enable proxy
+  proxyUrl: 'http://proxy.com',     // Proxy URL
+  proxyUsername: 'user',             // Proxy username
+  proxyPassword: 'pass'              // Proxy password
 });
 
 const result = await forge.processFile('./book.epub');
-console.log('Files:', result.files);
 console.log('Archive:', result.archive);
 ```
 
@@ -180,13 +232,27 @@ console.log('Download from:', url);
 
 ```javascript
 new SummaryForge({
+  // API Keys
   openaiApiKey: string,      // Required: OpenAI API key
   rainforestApiKey: string,  // Optional: For title search
   elevenlabsApiKey: string,  // Optional: For audio generation
+  twocaptchaApiKey: string,  // Optional: For CAPTCHA solving
+  browserlessApiKey: string, // Optional: For browserless.io
+  
+  // Processing Options
   maxChars: number,          // Optional: Max chars to process (default: 400000)
   maxTokens: number,         // Optional: Max tokens in summary (default: 16000)
-  voiceId: string,           // Optional: ElevenLabs voice ID (default: Rachel)
-  voiceSettings: object      // Optional: Voice customization settings
+  
+  // Audio Options
+  voiceId: string,           // Optional: ElevenLabs voice ID (default: Brian)
+  voiceSettings: object,     // Optional: Voice customization settings
+  
+  // Browser Options
+  headless: boolean,         // Optional: Run browser in headless mode (default: true)
+  enableProxy: boolean,      // Optional: Enable proxy (default: false)
+  proxyUrl: string,          // Optional: Proxy URL
+  proxyUsername: string,     // Optional: Proxy username
+  proxyPassword: string      // Optional: Proxy password
 })
 ```
 
@@ -212,14 +278,35 @@ new SummaryForge({
   - Returns: String markdown summary
   - Note: Uses OpenAI's vision API to directly analyze PDF, preserving formatting and images
 
-## Environment Variables
+## Configuration
 
-Create a `.env` file in your project root:
+### CLI Configuration (Recommended)
+
+For CLI usage, run the setup command to configure your API keys:
+
+```bash
+summary setup
+```
+
+This saves your configuration to `~/.config/summary-forge/settings.json` so you don't need to manage environment variables.
+
+### Environment Variables (Alternative)
+
+For programmatic usage or if you prefer environment variables, create a `.env` file:
 
 ```env
 OPENAI_API_KEY=sk-your-key-here
 RAINFOREST_API_KEY=your-key-here
 ELEVENLABS_API_KEY=sk-your-key-here  # Optional: for audio generation
+TWOCAPTCHA_API_KEY=your-key-here      # Optional: for CAPTCHA solving
+BROWSERLESS_API_KEY=your-key-here     # Optional
+
+# Browser Configuration
+HEADLESS=true                          # Run browser in headless mode
+ENABLE_PROXY=false                     # Enable proxy for browser requests
+PROXY_URL=http://proxy.example.com    # Proxy URL (if enabled)
+PROXY_USERNAME=username                # Proxy username (if enabled)
+PROXY_PASSWORD=password                # Proxy password (if enabled)
 ```
 
 Or set them in your shell:
@@ -229,6 +316,14 @@ export OPENAI_API_KEY=sk-your-key-here
 export RAINFOREST_API_KEY=your-key-here
 export ELEVENLABS_API_KEY=sk-your-key-here  # Optional
 ```
+
+### Configuration Priority
+
+When using the module programmatically, configuration is loaded in this order (highest priority first):
+
+1. **Constructor options** - Passed directly to `new SummaryForge(options)`
+2. **Environment variables** - From `.env` file or shell
+3. **Config file** - From `~/.config/summary-forge/settings.json` (CLI only)
 
 ### Audio Generation
 

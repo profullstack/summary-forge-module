@@ -10,12 +10,207 @@ import { program } from 'commander';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
-import dotenv from 'dotenv';
 import path from 'node:path';
 import { SummaryForge } from '../src/summary-forge.js';
+import {
+  loadConfig,
+  saveConfig,
+  hasConfig,
+  getConfigPath,
+  deleteConfig
+} from '../src/utils/config.js';
+/**
+ * Create SummaryForge instance with config from settings file
+ */
+async function createForge() {
+  const config = await loadConfig();
+  
+  if (!config) {
+    console.log(chalk.yellow('\n⚠️  No configuration found. Please run "summary setup" first.\n'));
+    process.exit(1);
+  }
+  
+  return new SummaryForge(config);
+}
 
-// Load environment variables
-dotenv.config();
+program
+  .command('setup')
+  .description('Configure API keys and settings')
+  .action(async () => {
+    try {
+      console.log(chalk.blue.bold('\n🔧 Summary Forge - Configuration Setup\n'));
+      
+      // Check if config already exists
+      const existingConfig = await loadConfig();
+      
+      if (existingConfig) {
+        const { overwrite } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'overwrite',
+            message: 'Configuration already exists. Do you want to update it?',
+            default: false
+          }
+        ]);
+        
+        if (!overwrite) {
+          console.log(chalk.gray('Setup cancelled.'));
+          return;
+        }
+      }
+      
+      console.log(chalk.white('Please provide your API keys. Press Enter to skip optional keys.\n'));
+      
+      const answers = await inquirer.prompt([
+        {
+          type: 'password',
+          name: 'openaiApiKey',
+          message: 'OpenAI API Key (required):',
+          validate: (input) => input.trim().length > 0 || 'OpenAI API key is required',
+          default: existingConfig?.openaiApiKey
+        },
+        {
+          type: 'password',
+          name: 'rainforestApiKey',
+          message: 'Rainforest API Key (for Amazon search):',
+          default: existingConfig?.rainforestApiKey
+        },
+        {
+          type: 'password',
+          name: 'elevenlabsApiKey',
+          message: 'ElevenLabs API Key (for audio generation):',
+          default: existingConfig?.elevenlabsApiKey
+        },
+        {
+          type: 'password',
+          name: 'twocaptchaApiKey',
+          message: '2Captcha API Key (for CAPTCHA solving):',
+          default: existingConfig?.twocaptchaApiKey
+        },
+        {
+          type: 'password',
+          name: 'browserlessApiKey',
+          message: 'Browserless API Key (optional):',
+          default: existingConfig?.browserlessApiKey
+        },
+        {
+          type: 'confirm',
+          name: 'headless',
+          message: 'Run browser in headless mode?',
+          default: existingConfig?.headless ?? true
+        },
+        {
+          type: 'confirm',
+          name: 'enableProxy',
+          message: 'Enable proxy for browser requests?',
+          default: existingConfig?.enableProxy ?? false
+        }
+      ]);
+      
+      // Ask for proxy details if enabled
+      if (answers.enableProxy) {
+        const proxyAnswers = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'proxyUrl',
+            message: 'Proxy URL (e.g., http://proxy.example.com):',
+            validate: (input) => input.trim().length > 0 || 'Proxy URL is required when proxy is enabled',
+            default: existingConfig?.proxyUrl
+          },
+          {
+            type: 'input',
+            name: 'proxyUsername',
+            message: 'Proxy Username:',
+            default: existingConfig?.proxyUsername
+          },
+          {
+            type: 'password',
+            name: 'proxyPassword',
+            message: 'Proxy Password:',
+            default: existingConfig?.proxyPassword
+          }
+        ]);
+        
+        Object.assign(answers, proxyAnswers);
+      }
+      
+      // Remove empty optional fields
+      const config = {};
+      for (const [key, value] of Object.entries(answers)) {
+        if (value !== '' && value !== undefined) {
+          config[key] = value;
+        }
+      }
+      
+      // Save configuration
+      await saveConfig(config);
+      
+      console.log(chalk.green(`\n✅ Configuration saved to ${getConfigPath()}`));
+      console.log(chalk.blue('\n💡 You can now use the CLI commands without environment variables.'));
+      console.log(chalk.gray('   To update your configuration, run "summary setup" again.\n'));
+      
+    } catch (error) {
+      console.error(chalk.red(`\n❌ Error: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('config')
+  .description('Show current configuration')
+  .option('--delete', 'Delete the configuration file')
+  .action(async (options) => {
+    try {
+      if (options.delete) {
+        const { confirm } = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'confirm',
+            message: 'Are you sure you want to delete your configuration?',
+            default: false
+          }
+        ]);
+        
+        if (confirm) {
+          await deleteConfig();
+          console.log(chalk.green('\n✅ Configuration deleted.\n'));
+        } else {
+          console.log(chalk.gray('Deletion cancelled.'));
+        }
+        return;
+      }
+      
+      const config = await loadConfig();
+      
+      if (!config) {
+        console.log(chalk.yellow('\n⚠️  No configuration found.'));
+        console.log(chalk.blue('   Run "summary setup" to configure API keys.\n'));
+        return;
+      }
+      
+      console.log(chalk.blue.bold('\n📋 Current Configuration\n'));
+      console.log(chalk.gray(`Location: ${getConfigPath()}\n`));
+      
+      // Mask sensitive values
+      const displayConfig = {};
+      for (const [key, value] of Object.entries(config)) {
+        if (typeof value === 'string' && value.length > 10 && key.toLowerCase().includes('key')) {
+          displayConfig[key] = value.slice(0, 8) + '...' + value.slice(-4);
+        } else {
+          displayConfig[key] = value;
+        }
+      }
+      
+      console.log(chalk.white(JSON.stringify(displayConfig, null, 2)));
+      console.log(chalk.gray('\n💡 Run "summary setup" to update configuration.'));
+      console.log(chalk.gray('   Run "summary config --delete" to remove configuration.\n'));
+      
+    } catch (error) {
+      console.error(chalk.red(`\n❌ Error: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
 
 const version = '1.0.0';
 
@@ -29,7 +224,7 @@ program
   .description('Process a PDF or EPUB file')
   .action(async (filePath) => {
     try {
-      const forge = new SummaryForge();
+      const forge = await createForge();
       const result = await forge.processFile(path.resolve(filePath));
       
       console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
@@ -82,7 +277,7 @@ program
   .option('--no-download', 'Skip download and just show URL')
   .action(async (asin, options) => {
     try {
-      const forge = new SummaryForge();
+      const forge = await createForge();
       
       if (options.download === false) {
         const url = forge.getAnnasArchiveUrl(asin);
@@ -165,7 +360,7 @@ program
         ]);
 
         const spinner = ora('Processing book...').start();
-        const forge = new SummaryForge();
+        const forge = await createForge();
         const result = await forge.processFile(path.resolve(filePath));
         spinner.stop();
         
@@ -188,7 +383,7 @@ program
         ]);
 
         const spinner = ora('Searching Amazon...').start();
-        const forge = new SummaryForge();
+        const forge = await createForge();
         const results = await forge.searchBookByTitle(title);
         spinner.stop();
 
@@ -257,7 +452,7 @@ program
           }
         ]);
 
-        const forge = new SummaryForge();
+        const forge = await createForge();
         
         const spinner = ora('Downloading from Anna\'s Archive...').start();
         try {
@@ -303,7 +498,7 @@ program
 async function searchAndDisplay(title) {
   try {
     const spinner = ora('Searching Amazon...').start();
-    const forge = new SummaryForge();
+    const forge = await createForge();
     const results = await forge.searchBookByTitle(title);
     spinner.stop();
 
