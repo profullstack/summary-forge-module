@@ -119,6 +119,38 @@ describe('Config Utility', () => {
       expect(loaded.headless).toBe(true);
       expect(loaded.enableProxy).toBe(false);
     });
+
+    it('should save and load proxy pool size', async () => {
+      const config = {
+        openaiApiKey: 'test',
+        enableProxy: true,
+        proxyUrl: 'http://proxy.example.com:8080',
+        proxyUsername: 'user',
+        proxyPassword: 'pass',
+        proxyPoolSize: 50
+      };
+      
+      await saveConfig(config);
+      const loaded = await loadConfig();
+      
+      expect(loaded.proxyPoolSize).toBe(50);
+    });
+
+    it('should apply default proxy pool size when not specified', async () => {
+      const config = {
+        openaiApiKey: 'test',
+        enableProxy: true,
+        proxyUrl: 'http://proxy.example.com:8080',
+        proxyUsername: 'user',
+        proxyPassword: 'pass'
+      };
+      
+      await saveConfig(config);
+      const loaded = await loadConfig();
+      
+      // proxyPoolSize defaults to 36 when not specified in config
+      expect(loaded.proxyPoolSize).toBe(36);
+    });
   });
 
   describe('loadConfig()', () => {

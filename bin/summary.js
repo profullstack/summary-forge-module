@@ -156,6 +156,17 @@ program
           message: 'Proxy Password:',
           when: (answers) => answers.enableProxy,
           default: existingConfig?.proxyPassword
+        },
+        {
+          type: 'input',
+          name: 'proxyPoolSize',
+          message: 'Proxy Pool Size (number of sticky sessions, default 36):',
+          when: (answers) => answers.enableProxy,
+          default: existingConfig?.proxyPoolSize || 36,
+          validate: (input) => {
+            const num = parseInt(input);
+            return (!isNaN(num) && num > 0) || 'Must be a positive number';
+          }
         }
       ]);
       

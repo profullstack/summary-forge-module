@@ -43,7 +43,7 @@ export class SummaryForge {
     this.proxyUrl = config.proxyUrl;
     this.proxyUsername = config.proxyUsername;
     this.proxyPassword = config.proxyPassword;
-    this.proxyPoolSize = config.proxyPoolSize ?? 100; // Default to 100 if not specified
+    this.proxyPoolSize = config.proxyPoolSize ?? 36; // Default to 36 if not specified
     
     // Directory overwrite protection
     this.force = config.force ?? false;
