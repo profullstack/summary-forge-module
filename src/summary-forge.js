@@ -634,14 +634,18 @@ export class SummaryForge {
       }
       console.log(`📖 Using book title: ${finalTitle}`);
       
-      // Sanitize title and ensure ASIN isn't duplicated
-      const sanitizedTitle = this.sanitizeFilename(finalTitle);
+      // Sanitize title and ASIN separately, then combine
+      // This ensures consistent lowercase and no duplication
+      let sanitizedTitle = this.sanitizeFilename(finalTitle);
       const asinLower = asin.toLowerCase();
       
-      // Check if the sanitized title already ends with the ASIN
-      const dirName = sanitizedTitle.endsWith(`_${asinLower}`)
-        ? sanitizedTitle
-        : `${sanitizedTitle}_${asinLower}`;
+      // Remove ASIN from sanitized title if it's there (case-insensitive)
+      // This handles cases where the title already contains the ASIN
+      const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
+      sanitizedTitle = sanitizedTitle.replace(asinPattern, '');
+      
+      // Always append lowercase ASIN to create directory name
+      const dirName = `${sanitizedTitle}_${asinLower}`;
       
       const bookDir = path.join(outputDir, 'uploads', dirName);
       
