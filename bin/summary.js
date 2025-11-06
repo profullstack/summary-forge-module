@@ -61,34 +61,64 @@ program
       
       console.log(chalk.white('Please provide your API keys. Press Enter to skip optional keys.\n'));
       
+      // Display existing values if present
+      if (existingConfig) {
+        console.log(chalk.gray('Current values (press Enter to keep):'));
+        if (existingConfig.openaiApiKey) {
+          console.log(chalk.gray(`  OpenAI API Key: ${existingConfig.openaiApiKey}`));
+        }
+        if (existingConfig.rainforestApiKey) {
+          console.log(chalk.gray(`  Rainforest API Key: ${existingConfig.rainforestApiKey}`));
+        }
+        if (existingConfig.elevenlabsApiKey) {
+          console.log(chalk.gray(`  ElevenLabs API Key: ${existingConfig.elevenlabsApiKey}`));
+        }
+        if (existingConfig.twocaptchaApiKey) {
+          console.log(chalk.gray(`  2Captcha API Key: ${existingConfig.twocaptchaApiKey}`));
+        }
+        if (existingConfig.browserlessApiKey) {
+          console.log(chalk.gray(`  Browserless API Key: ${existingConfig.browserlessApiKey}`));
+        }
+        if (existingConfig.proxyUrl) {
+          console.log(chalk.gray(`  Proxy URL: ${existingConfig.proxyUrl}`));
+        }
+        if (existingConfig.proxyUsername) {
+          console.log(chalk.gray(`  Proxy Username: ${existingConfig.proxyUsername}`));
+        }
+        if (existingConfig.proxyPassword) {
+          console.log(chalk.gray(`  Proxy Password: ${existingConfig.proxyPassword}`));
+        }
+        console.log('');
+      }
+      
       const answers = await inquirer.prompt([
         {
-          type: 'password',
+          type: 'input',
           name: 'openaiApiKey',
           message: 'OpenAI API Key (required):',
           validate: (input) => input.trim().length > 0 || 'OpenAI API key is required',
           default: existingConfig?.openaiApiKey
         },
         {
-          type: 'password',
+          type: 'input',
           name: 'rainforestApiKey',
           message: 'Rainforest API Key (for Amazon search):',
           default: existingConfig?.rainforestApiKey
         },
         {
-          type: 'password',
+          type: 'input',
           name: 'elevenlabsApiKey',
           message: 'ElevenLabs API Key (for audio generation):',
           default: existingConfig?.elevenlabsApiKey
         },
         {
-          type: 'password',
+          type: 'input',
           name: 'twocaptchaApiKey',
           message: '2Captcha API Key (for CAPTCHA solving):',
           default: existingConfig?.twocaptchaApiKey
         },
         {
-          type: 'password',
+          type: 'input',
           name: 'browserlessApiKey',
           message: 'Browserless API Key (optional):',
           default: existingConfig?.browserlessApiKey
@@ -121,7 +151,7 @@ program
           default: existingConfig?.proxyUsername
         },
         {
-          type: 'password',
+          type: 'input',
           name: 'proxyPassword',
           message: 'Proxy Password:',
           when: (answers) => answers.enableProxy,
