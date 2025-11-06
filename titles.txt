@@ -1,4 +1,3 @@
-AI Engineering: Building Applications with Foundation Models
 LLM Engineering: Master the Art of Engineering Large Language Models
 AI-Powered Developer: Build Great Software with ChatGPT and Copilot
 LLMs in Production: Engineering AI Applications
