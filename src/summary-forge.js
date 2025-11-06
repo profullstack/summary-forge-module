@@ -631,12 +631,18 @@ export class SummaryForge {
       }
       console.log(`📖 Using book title: ${finalTitle}`);
       
-      const dirName = `${this.sanitizeFilename(finalTitle)}_${asin}`;
+      // Sanitize title and ensure ASIN isn't duplicated
+      const sanitizedTitle = this.sanitizeFilename(finalTitle);
+      const asinLower = asin.toLowerCase();
+      
+      // Check if the sanitized title already ends with the ASIN
+      const dirName = sanitizedTitle.endsWith(`_${asinLower}`)
+        ? sanitizedTitle
+        : `${sanitizedTitle}_${asinLower}`;
+      
       const bookDir = path.join(outputDir, 'uploads', dirName);
       
-      // Create directory
-      await fsp.mkdir(bookDir, { recursive: true });
-      console.log(`📁 Created directory: ${bookDir}`);
+      // Don't create directory yet - wait until we have a successful download
       
       // Check if we got an error page
       if (finalTitle.toLowerCase().includes('interrupt') ||
@@ -687,6 +693,10 @@ export class SummaryForge {
           
           console.log(`📥 Downloading from server ${i + 1}...`);
           console.log(`🔗 Download URL: ${downloadUrl}`);
+          
+          // Create directory now that we have a valid download URL
+          await fsp.mkdir(bookDir, { recursive: true });
+          console.log(`📁 Created directory: ${bookDir}`);
           
           // Verify the URL contains the book title or ASIN
           const urlLower = downloadUrl.toLowerCase();
@@ -1016,7 +1026,38 @@ export class SummaryForge {
   }
 
   /**
-   * Generate audio from text using ElevenLabs TTS
+   * Chunk text into smaller pieces for ElevenLabs processing
+   */
+  chunkText(text, maxCharsPerChunk = 8000) {
+    const chunks = [];
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    
+    let currentChunk = '';
+    
+    for (const sentence of sentences) {
+      const trimmedSentence = sentence.trim();
+      if (currentChunk.length + trimmedSentence.length + 1 <= maxCharsPerChunk) {
+        currentChunk += (currentChunk ? '. ' : '') + trimmedSentence;
+      } else {
+        if (currentChunk) {
+          chunks.push(currentChunk + '.');
+          currentChunk = trimmedSentence;
+        } else {
+          // Handle case where single sentence exceeds limit
+          chunks.push(trimmedSentence + '.');
+        }
+      }
+    }
+    
+    if (currentChunk) {
+      chunks.push(currentChunk + '.');
+    }
+    
+    return chunks;
+  }
+
+  /**
+   * Generate audio from text using ElevenLabs TTS with chunking and streaming
    */
   async generateAudio(text, outputPath) {
     if (!this.elevenlabs) {
@@ -1032,6 +1073,7 @@ export class SummaryForge {
       console.log(`📝 Sanitized text: ${text.length} → ${sanitized.length} chars`);
       
       // ElevenLabs Turbo v2.5 supports up to 40,000 characters per request
+      // But we'll chunk at 8,000 for better reliability and streaming
       const maxAudioChars = 40000;
       let textToConvert = sanitized;
       
@@ -1041,23 +1083,59 @@ export class SummaryForge {
         textToConvert = sanitized.slice(0, maxAudioChars) + "\n\n[Audio summary truncated due to length. Full summary available in text/PDF formats.]";
       }
       
-      console.log(`🎵 Generating audio for ${textToConvert.length} characters (estimated ${Math.ceil(textToConvert.length / 1000)} minutes)...`);
+      // Chunk the text for processing
+      const chunks = this.chunkText(textToConvert, 8000);
+      console.log(`🎵 Generating audio in ${chunks.length} chunks (${textToConvert.length} total chars, ~${Math.ceil(textToConvert.length / 1000)} minutes)...`);
 
-      const audio = await this.elevenlabs.generate({
-        voice: this.voiceId,
-        text: textToConvert,
-        model_id: "eleven_turbo_v2_5", // Best for audiobooks
-        voice_settings: this.voiceSettings
-        // Note: apply_text_normalization defaults to true (enabled) for better audio quality
-      });
-
-      // Write audio stream to file
-      const chunks = [];
-      for await (const chunk of audio) {
-        chunks.push(chunk);
+      const fileStream = fs.createWriteStream(outputPath);
+      const requestIds = [];
+      
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        console.log(`   Processing chunk ${i + 1}/${chunks.length} (${chunk.length} chars)...`);
+        
+        try {
+          // Use textToSpeech.convert with request stitching
+          const response = await this.elevenlabs.textToSpeech
+            .convert(this.voiceId, {
+              text: chunk,
+              model_id: "eleven_turbo_v2_5",
+              output_format: "mp3_44100_128",
+              previous_request_ids: requestIds,
+              voice_settings: this.voiceSettings
+            })
+            .withRawResponse();
+          
+          // Get request ID for stitching
+          const requestId = response.rawResponse.headers.get('request-id');
+          if (requestId) {
+            requestIds.push(requestId);
+            // Keep only last 3 request IDs for stitching context
+            if (requestIds.length > 3) {
+              requestIds.shift();
+            }
+          }
+          
+          // Stream audio data to file
+          for await (const audioChunk of response.data) {
+            fileStream.write(audioChunk);
+          }
+          
+          console.log(`   ✅ Chunk ${i + 1} completed`);
+          
+        } catch (chunkError) {
+          console.error(`   ⚠️  Chunk ${i + 1} failed: ${chunkError.message}`);
+          throw chunkError;
+        }
       }
       
-      await fsp.writeFile(outputPath, Buffer.concat(chunks));
+      // Close the file stream
+      fileStream.end();
+      
+      await new Promise((resolve, reject) => {
+        fileStream.on('finish', resolve);
+        fileStream.on('error', reject);
+      });
       
       // Track ElevenLabs costs
       const cost = this.trackElevenLabsCost(textToConvert.length);
