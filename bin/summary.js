@@ -367,7 +367,7 @@ program
       
       if (shouldProcess) {
         spinner.start('Processing book...');
-        const result = await forge.processFile(download.filepath);
+        const result = await forge.processFile(download.filepath, download.asin);
         spinner.stop();
         console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
         
@@ -489,7 +489,7 @@ program
           
           if (shouldProcess) {
             spinner.start('Processing book...');
-            const result = await forge.processFile(download.filepath);
+            const result = await forge.processFile(download.filepath, download.asin);
             spinner.stop();
             console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
             
@@ -534,7 +534,7 @@ program
           
           if (shouldProcess) {
             spinner.start('Processing book...');
-            const result = await forge.processFile(download.filepath);
+            const result = await forge.processFile(download.filepath, download.asin);
             spinner.stop();
             console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
             

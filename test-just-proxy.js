@@ -21,7 +21,7 @@ const main = async () => {
   });
 
   // Go to IP check page
-  await page.goto('https://annas-archive.org/search?index=&page=1&sort=newest&ext=pdf&display=list_compact&q=1098166302', {
+  await page.goto('https://annas-archive.org/slow_download/52db34d038cff82f57da95eaa512ad43/0/4', {
     waitUntil: 'domcontentloaded',
     timeout: 60000,
   });

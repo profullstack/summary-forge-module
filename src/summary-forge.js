@@ -10,7 +10,10 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import OpenAI from "openai";
 import { ElevenLabsClient } from "elevenlabs";
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
+puppeteer.use(StealthPlugin());
 import { PDFParse } from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 
@@ -155,6 +158,22 @@ export class SummaryForge {
   }
 
   /**
+   * Generate directory name from title and ASIN
+   * Ensures consistent naming across all download methods
+   */
+  generateDirectoryName(title, asin) {
+    const sanitizedTitle = this.sanitizeFilename(title);
+    const asinLower = asin.toLowerCase();
+    
+    // Remove ASIN from sanitized title if it's there (case-insensitive)
+    const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
+    const cleanTitle = sanitizedTitle.replace(asinPattern, '');
+    
+    // Always append lowercase ASIN to create directory name
+    return `${cleanTitle}_${asinLower}`;
+  }
+
+  /**
    * Execute shell command
    */
   async sh(cmd, args = [], opts = {}) {
@@ -189,6 +208,25 @@ export class SummaryForge {
     } catch (error) {
       throw new Error(`Failed to fetch ${url}: ${error.message}`);
     }
+  }
+
+  /**
+   * Wait for __ddg cookies to appear (DDoS-Guard clearance)
+   */
+  async waitForDdgCookies(page, timeout = 60000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      // Get cookies from page context (document.cookie) first (fast)
+      const docCookie = await page.evaluate(() => document.cookie).catch(() => '');
+      if (docCookie && /__ddg/.test(docCookie)) return true;
+
+      // Fallback to puppeteer page.cookies()
+      const cookies = await page.cookies().catch(() => []);
+      if (cookies.some(c => c.name && c.name.startsWith('__ddg'))) return true;
+
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return false;
   }
 
   /**
@@ -428,24 +466,63 @@ export class SummaryForge {
   }
 
   /**
-   * Get download URL using Puppeteer with CAPTCHA solving (same flow as test-puppeteer.js)
+   * Get download URL using Puppeteer with DDoS-Guard bypass
    */
   async getDownloadUrlWithPuppeteer(url, page, outputDir) {
     console.log(`🌐 Navigating to: ${url}`);
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
-
-    // Wait for DDoS protection to complete (if present)
-    console.log(`⏳ Waiting for DDoS protection check...`);
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    // Check and solve CAPTCHA if present
-    const captchaSolved = await this.solveCaptcha(page);
     
-    if (captchaSolved) {
-      console.log("⏳ Waiting for page to reload after CAPTCHA...");
-      await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 }).catch(() => {
-        console.log("⚠️ No navigation detected after CAPTCHA solve");
-      });
+    const navOptions = { waitUntil: 'domcontentloaded', timeout: 90000 };
+    await page.goto(url, navOptions);
+
+    // Try to click any "verify/continue" button that appears
+    const clicked = await page.evaluate(async () => {
+      function matchesText(el, re) {
+        try {
+          return el && el.innerText && re.test(el.innerText.trim());
+        } catch (e) {
+          return false;
+        }
+      }
+      const RE = /(verify|continue|i am not a robot|i'm not a robot|check your browser|proceed|allow)/i;
+      const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a'));
+      for (const b of buttons) {
+        if (matchesText(b, RE)) {
+          try {
+            b.click();
+            return { clicked: true, text: b.innerText || b.value || 'button' };
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+      return { clicked: false };
+    });
+
+    if (clicked && clicked.clicked) {
+      console.log('✅ Clicked challenge button:', clicked.text);
+    } else {
+      console.log('ℹ️  No obvious challenge button found — waiting for cookies or manual action.');
+    }
+
+    // Wait until __ddg* cookies appear (DDoS-Guard clearance)
+    console.log('⏳ Waiting for DDoS-Guard clearance cookies...');
+    const haveCookies = await this.waitForDdgCookies(page, 60000);
+    if (!haveCookies) {
+      console.warn('⚠️  Timed out waiting for __ddg cookies. You may need to interact with the page manually.');
+    } else {
+      console.log('✅ Detected __ddg cookie(s) — challenge likely passed.');
+      
+      // Wait for the redirect to complete after cookies are set
+      console.log('⏳ Waiting for redirect after DDoS-Guard clearance...');
+      try {
+        await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        console.log('✅ Redirect completed');
+      } catch (navError) {
+        console.log('ℹ️  No navigation detected, page may have already loaded');
+      }
+      
+      // Give it a moment to settle
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     // Get final page content
@@ -562,43 +639,37 @@ export class SummaryForge {
     
     console.log(`🔒 Proxy session: ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
     
-    // Initialize proxy session with curl to establish the session
-    console.log(`🔄 Initializing proxy session ${sessionId}...`);
-    try {
-      const { exec } = await import('node:child_process');
-      const { promisify } = await import('node:util');
-      const execAsync = promisify(exec);
-      
-      const curlCmd = `curl --proxy "http://${proxyUsername}:${proxyPassword}@${proxyHost}:${proxyPort}" https://ipv4.webshare.io/`;
-      const { stdout, stderr } = await execAsync(curlCmd);
-      if (stderr) {
-        console.log(`⚠️  Curl stderr: ${stderr}`);
-      }
-      console.log(`✅ Proxy session initialized, IP: ${stdout.trim()}`);
-    } catch (err) {
-      console.log(`⚠️  Proxy init failed: ${err.message}`);
-      console.log(`   Continuing anyway - Puppeteer will try to establish the session`);
-    }
+    console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of 36)`);
+    
+    // Use a persistent profile to help DDoS-Guard recognize the browser across runs
+    const userDataDir = './puppeteer_ddg_profile';
     
     const browser = await puppeteer.launch({
       headless: false,
-      args: [`--proxy-server=${proxyHost}:${proxyPort}`],
+      args: [
+        `--proxy-server=${proxyHost}:${proxyPort}`,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
+      userDataDir,
+      defaultViewport: { width: 1200, height: 800 },
     });
     
     try {
       const page = await browser.newPage();
       
-      // Authenticate before any navigation
-      await page.authenticate({
-        username: proxyUsername,
-        password: proxyPassword,
+      // Set some common headers + user agent to look less botty
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+      );
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
       });
-      
-      // Set a realistic user agent
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-      
-      // Set viewport
-      await page.setViewport({ width: 1920, height: 1080 });
+
+      // If the proxy requires HTTP auth (most HTTP proxies do), page.authenticate usually works.
+      // This provides credentials for basic auth challenges (including many proxies).
+      await page.authenticate({ username: proxyUsername, password: proxyPassword });
       
       // Step 1: Go to search page with retry
       let retries = 3;
@@ -640,7 +711,8 @@ export class SummaryForge {
         
         return {
           href: link ? link.getAttribute('href') : null,
-          title: title.substring(0, 100),
+          title: title,  // Keep full title, don't truncate
+          titlePreview: title.substring(0, 100),  // For display only
           sizeInMB
         };
       });
@@ -650,7 +722,7 @@ export class SummaryForge {
       }
       
       console.log(`📖 Found first result (best match):`);
-      console.log(`   Title: "${firstResult.title}"`);
+      console.log(`   Title: "${firstResult.titlePreview}"`);
       console.log(`   Size: ${firstResult.sizeInMB.toFixed(1)}MB`);
       console.log(`✅ Using first result (Anna's Archive sorts by relevance)`);
       
@@ -664,28 +736,25 @@ export class SummaryForge {
       
       console.log(`📖 Navigated to book page`);
       
-      // Use provided book title or try to extract from page, fallback to ASIN
+      // Use provided book title, or search result title, or extract from page, fallback to ASIN
       let finalTitle = bookTitle;
       if (!finalTitle) {
+        // Use the title from search results first (more reliable than page h1)
+        finalTitle = firstResult.title;
+      }
+      if (!finalTitle || finalTitle.toLowerCase().includes("anna's archive")) {
+        // Fallback to page h1 if search result title is not good
         finalTitle = await page.$eval('h1', el => el.textContent.trim()).catch(() => null);
       }
-      if (!finalTitle) {
+      if (!finalTitle || finalTitle.toLowerCase().includes("anna's archive")) {
+        // Final fallback to ASIN
         finalTitle = asin;
       }
       console.log(`📖 Using book title: ${finalTitle}`);
       
-      // Sanitize title and ASIN separately, then combine
-      // This ensures consistent lowercase and no duplication
-      let sanitizedTitle = this.sanitizeFilename(finalTitle);
-      const asinLower = asin.toLowerCase();
-      
-      // Remove ASIN from sanitized title if it's there (case-insensitive)
-      // This handles cases where the title already contains the ASIN
-      const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
-      sanitizedTitle = sanitizedTitle.replace(asinPattern, '');
-      
-      // Always append lowercase ASIN to create directory name
-      const dirName = `${sanitizedTitle}_${asinLower}`;
+      // Use centralized directory name generation
+      const dirName = this.generateDirectoryName(finalTitle, asin);
+      const sanitizedTitle = this.sanitizeFilename(finalTitle);
       
       const bookDir = path.join(outputDir, 'uploads', dirName);
       
@@ -1322,6 +1391,7 @@ export class SummaryForge {
 
   /**
    * Process a book file (PDF or EPUB)
+   * If the file was downloaded from Anna's Archive, it's already in the correct directory
    */
   async processFile(filePath, asin = null) {
     const ext = path.extname(filePath).toLowerCase();
@@ -1338,42 +1408,59 @@ export class SummaryForge {
       throw new Error(`Unsupported file type: ${ext}. Only .pdf and .epub are supported.`);
     }
 
-    // Create basename WITHOUT ASIN for filenames
+    // Extract title from filename for basename (without ASIN)
     const basename = this.sanitizeFilename(path.basename(filePath));
     
-    // Create directory name WITH ASIN
-    let dirName = basename;
-    if (asin) {
-      const asinLower = asin.toLowerCase();
-      // Remove ASIN from basename if it's there (case-insensitive)
-      const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
-      const cleanBasename = basename.replace(asinPattern, '');
-      // Directory name has ASIN
-      dirName = `${cleanBasename}_${asinLower}`;
-    }
+    // Determine if file is already in an uploads directory (from downloadFromAnnasArchive)
+    const isInUploadsDir = filePath.includes(path.join('uploads', path.sep));
     
-    // Create output directory structure: ./uploads/<title>_<asin>/
-    const bookDir = path.join('uploads', dirName);
-    await fsp.mkdir(bookDir, { recursive: true });
-    console.log(`📁 Created directory: ${bookDir}`);
+    let bookDir;
+    let dirName;
+    
+    if (isInUploadsDir) {
+      // File is already in the correct directory from downloadFromAnnasArchive
+      bookDir = path.dirname(filePath);
+      dirName = path.basename(bookDir);
+      console.log(`📁 Using existing directory: ${bookDir}`);
+    } else {
+      // Create new directory structure for manually provided files
+      if (asin) {
+        dirName = this.generateDirectoryName(basename, asin);
+      } else {
+        dirName = basename;
+      }
+      
+      bookDir = path.join('uploads', dirName);
+      await fsp.mkdir(bookDir, { recursive: true });
+      console.log(`📁 Created directory: ${bookDir}`);
+    }
     
     const markdown = await this.generateSummary(pdfPath);
     
     // Generate output files using basename WITHOUT ASIN
     const outputs = await this.generateOutputFiles(markdown, basename, bookDir);
     
-    // Copy original files to book directory with consistent naming
-    const renamedPdf = path.join(bookDir, `${basename}.pdf`);
-    await fsp.copyFile(pdfPath, renamedPdf);
-    console.log(`✅ Saved PDF as ${renamedPdf}`);
-
-    const files = [outputs.summaryMd, outputs.summaryTxt, outputs.summaryPdf, outputs.summaryEpub, renamedPdf];
+    // Copy original files to book directory with consistent naming (only if not already there)
+    const files = [outputs.summaryMd, outputs.summaryTxt, outputs.summaryPdf, outputs.summaryEpub];
     
-    if (epubPath) {
-      const renamedEpub = path.join(bookDir, `${basename}.epub`);
-      await fsp.copyFile(epubPath, renamedEpub);
-      console.log(`✅ Saved EPUB as ${renamedEpub}`);
-      files.push(renamedEpub);
+    if (!isInUploadsDir) {
+      const renamedPdf = path.join(bookDir, `${basename}.pdf`);
+      await fsp.copyFile(pdfPath, renamedPdf);
+      console.log(`✅ Saved PDF as ${renamedPdf}`);
+      files.push(renamedPdf);
+      
+      if (epubPath) {
+        const renamedEpub = path.join(bookDir, `${basename}.epub`);
+        await fsp.copyFile(epubPath, renamedEpub);
+        console.log(`✅ Saved EPUB as ${renamedEpub}`);
+        files.push(renamedEpub);
+      }
+    } else {
+      // File is already in the correct location, just add it to the list
+      files.push(pdfPath);
+      if (epubPath) {
+        files.push(epubPath);
+      }
     }
 
     // Add audio script to list if it was generated
