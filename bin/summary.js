@@ -385,7 +385,7 @@ program
       // Check if just showing URL
       if (options.download === false) {
         const tempForge = new SummaryForge(config);
-        const url = tempForge.getAnnasArchiveUrl(asin);
+        const url = tempForge.getAnnasArchiveUrl(asin, null);
         console.log(chalk.blue(`\n🌐 Anna's Archive URL:`));
         console.log(chalk.cyan(url));
         console.log(chalk.yellow(`\n⚠️  Please download the EPUB manually, then run:`));
@@ -710,7 +710,7 @@ async function searchAndDisplay(title, force = false) {
       downloadSpinner.stop();
       console.error(chalk.red(`\n❌ Download failed: ${error.message}`));
       console.log(chalk.yellow(`\n💡 You can try downloading manually from:`));
-      console.log(chalk.cyan(forge.getAnnasArchiveUrl(selectedBook.asin)));
+      console.log(chalk.cyan(forge.getAnnasArchiveUrl(selectedBook.asin, selectedBook.title)));
     }
   } catch (error) {
     console.error(chalk.red(`\n❌ Error: ${error.message}`));

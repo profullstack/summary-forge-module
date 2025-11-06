@@ -616,20 +616,51 @@ export class SummaryForge {
   }
 
   /**
-   * Get Anna's Archive search URL for ASIN
-   * Searches for PDF only, sorted by newest (highest quality)
+   * Check if a string is a real ISBN (10 or 13 digits) vs Amazon ASIN
+   * Real ISBNs are numeric and 10 or 13 digits long
+   * Amazon ASINs are alphanumeric and typically 10 characters
    */
-  getAnnasArchiveUrl(asin) {
+  isRealISBN(identifier) {
+    // Handle null, undefined, or non-string values
+    if (!identifier || typeof identifier !== 'string') {
+      return false;
+    }
+    
+    // Remove hyphens and spaces
+    const cleaned = identifier.replace(/[-\s]/g, '');
+    
+    // Check if it's all numeric and either 10 or 13 digits
+    return /^\d{10}$/.test(cleaned) || /^\d{13}$/.test(cleaned);
+  }
+
+  /**
+   * Get Anna's Archive search URL for ASIN or book title
+   * Searches for PDF only, sorted by newest (highest quality)
+   * If ASIN is not a real ISBN, uses book title instead
+   */
+  getAnnasArchiveUrl(asin, bookTitle = null) {
+    // Determine search query: use title if ASIN is not a real ISBN
+    const searchQuery = (bookTitle && !this.isRealISBN(asin))
+      ? encodeURIComponent(bookTitle)
+      : asin;
+    
     // Only search for PDF, sort by newest to get highest quality versions
-    return `https://annas-archive.org/search?index=&page=1&sort=newest&ext=pdf&display=list_compact&q=${asin}`;
+    return `https://annas-archive.org/search?index=&page=1&sort=newest&ext=pdf&display=list_compact&q=${searchQuery}`;
   }
 
   /**
    * Download file from Anna's Archive using Puppeteer
    */
   async downloadFromAnnasArchive(asin, outputDir = '.', bookTitle = null) {
-    const searchUrl = this.getAnnasArchiveUrl(asin);
-    console.log(`📚 Searching Anna's Archive for ASIN: ${asin}...`);
+    const searchUrl = this.getAnnasArchiveUrl(asin, bookTitle);
+    
+    // Log what we're searching for
+    if (bookTitle && !this.isRealISBN(asin)) {
+      console.log(`📚 Searching Anna's Archive by title (ASIN ${asin} is not a real ISBN)...`);
+      console.log(`📖 Book title: ${bookTitle}`);
+    } else {
+      console.log(`📚 Searching Anna's Archive for ISBN: ${asin}...`);
+    }
     if (bookTitle) {
       console.log(`📖 Book title from search: ${bookTitle}`);
     }

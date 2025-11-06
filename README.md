@@ -212,7 +212,7 @@ const forge = new SummaryForge({
   proxyUrl: 'http://proxy.com',     // Proxy URL
   proxyUsername: 'user',             // Proxy username
   proxyPassword: 'pass',             // Proxy password
-  proxyPoolSize: 100                 // Number of proxies in pool (default: 100)
+  proxyPoolSize: 36                  // Number of proxies in pool (default: 36)
 });
 
 const result = await forge.processFile('./book.epub');
@@ -266,7 +266,7 @@ new SummaryForge({
   proxyUrl: string,          // Optional: Proxy URL
   proxyUsername: string,     // Optional: Proxy username
   proxyPassword: string,     // Optional: Proxy password
-  proxyPoolSize: number      // Optional: Number of proxies in pool (default: 100)
+  proxyPoolSize: number      // Optional: Number of proxies in pool (default: 36)
 })
 ```
 
@@ -326,7 +326,7 @@ ENABLE_PROXY=false                     # Enable proxy for browser requests
 PROXY_URL=http://proxy.example.com    # Proxy URL (if enabled)
 PROXY_USERNAME=username                # Proxy username (if enabled)
 PROXY_PASSWORD=password                # Proxy password (if enabled)
-PROXY_POOL_SIZE=100                    # Number of proxies in your pool (default: 100)
+PROXY_POOL_SIZE=36                     # Number of proxies in your pool (default: 36)
 ```
 
 Or set them in your shell:
@@ -385,13 +385,20 @@ The tool automatically generates a unique session ID (1 to `PROXY_POOL_SIZE`) fo
 
 **Proxy Pool Size Configuration:**
 
-Set `PROXY_POOL_SIZE` to match your Webshare plan:
+Set `PROXY_POOL_SIZE` to match your Webshare plan (default: 36):
 - Free tier: 10 proxies → `PROXY_POOL_SIZE=10`
 - Starter plan: 25 proxies → `PROXY_POOL_SIZE=25`
 - Professional plan: 100 proxies → `PROXY_POOL_SIZE=100`
 - Enterprise plan: 250+ proxies → `PROXY_POOL_SIZE=250`
 
 The tool will randomly select a session ID from 1 to your pool size, distributing load across all available proxies.
+
+**Smart ISBN Detection:**
+
+When searching Anna's Archive, the tool automatically detects whether an identifier is a real ISBN or an Amazon ASIN:
+- **Real ISBNs** (10 or 13 numeric digits): Searches by ISBN for precise results
+- **Amazon ASINs** (alphanumeric): Searches by book title instead for better results
+- This ensures you get relevant search results even when Amazon returns proprietary ASINs instead of standard ISBNs
 
 **Note:** Rotating proxies (`p.webshare.io`) don't support sticky sessions. Use individual static proxy IPs from your proxy list instead.
 

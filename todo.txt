@@ -7,5 +7,16 @@ accept "summary url <url>" to just fetch the page with puppeteer, santize the ht
 let's add support for https://welib.org/search?sort=newest&index=&page=1&q=173210221X&ext=pdf in addigiont to anna's archive. we can use it as a fallback if anna's ever goes bust.
 
 
+https://z-lib.gl/s/173210221X?extensions%5B%5D=PDF&order=date
+https://z-lib.gl/s/?q=AI-Powered+Developer%3A+Build+great+software+with+ChatGPT+and+Copilot&extensions%5B%5D=PDF&order=date
+https://z-lib.gl/s/?q=173210221X&extensions%5B%5D=PDF&order=date
+https://z-lib.gl/s/?q=\&extensions%5B%5D=PDF&order=date
 
+
+(not ddos bullshit on z-lib.gl)
+
+
+more here:
+
+https://open-slum.org/
 

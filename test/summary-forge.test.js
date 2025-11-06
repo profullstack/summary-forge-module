@@ -121,6 +121,59 @@ describe('SummaryForge', () => {
     });
   });
 
+  describe('ISBN Detection', () => {
+    it('should identify valid 10-digit ISBN', () => {
+      expect(forge.isRealISBN('0123456789')).toBe(true);
+      expect(forge.isRealISBN('0-123-45678-9')).toBe(true);
+    });
+
+    it('should identify valid 13-digit ISBN', () => {
+      expect(forge.isRealISBN('9780123456789')).toBe(true);
+      expect(forge.isRealISBN('978-0-123-45678-9')).toBe(true);
+    });
+
+    it('should reject Amazon ASINs (alphanumeric)', () => {
+      expect(forge.isRealISBN('B0F46KWSVR')).toBe(false);
+      expect(forge.isRealISBN('1633437612')).toBe(true); // This is actually numeric, so valid
+    });
+
+    it('should reject invalid length identifiers', () => {
+      expect(forge.isRealISBN('12345')).toBe(false);
+      expect(forge.isRealISBN('123456789012345')).toBe(false);
+    });
+
+    it('should handle empty or null values', () => {
+      expect(forge.isRealISBN('')).toBe(false);
+      expect(forge.isRealISBN(null)).toBe(false);
+    });
+  });
+
+  describe('Anna\'s Archive URL Generation', () => {
+    it('should use ISBN when it is a real ISBN', () => {
+      const url = forge.getAnnasArchiveUrl('9780123456789', 'Test Book Title');
+      expect(url).toContain('q=9780123456789');
+      expect(url).not.toContain('Test%20Book');
+    });
+
+    it('should use book title when ASIN is not a real ISBN', () => {
+      const url = forge.getAnnasArchiveUrl('B0F46KWSVR', 'Test Book Title');
+      expect(url).toContain('q=Test%20Book%20Title');
+      expect(url).not.toContain('B0F46KWSVR');
+    });
+
+    it('should use ASIN when no book title provided', () => {
+      const url = forge.getAnnasArchiveUrl('B0F46KWSVR', null);
+      expect(url).toContain('q=B0F46KWSVR');
+    });
+
+    it('should include PDF filter and sort parameters', () => {
+      const url = forge.getAnnasArchiveUrl('9780123456789');
+      expect(url).toContain('ext=pdf');
+      expect(url).toContain('sort=newest');
+      expect(url).toContain('display=list_compact');
+    });
+  });
+
   describe('Error Handling', () => {
     it('should handle missing required parameters gracefully', () => {
       expect(() => {
