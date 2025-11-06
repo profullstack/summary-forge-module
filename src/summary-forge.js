@@ -631,7 +631,7 @@ export class SummaryForge {
       }
       console.log(`📖 Using book title: ${finalTitle}`);
       
-      const dirName = this.sanitizeFilename(finalTitle);
+      const dirName = `${this.sanitizeFilename(finalTitle)}_${asin}`;
       const bookDir = path.join(outputDir, 'uploads', dirName);
       
       // Create directory
@@ -725,6 +725,7 @@ export class SummaryForge {
             filename: path.basename(filepath),
             originalFilename: filename,
             title: finalTitle,
+            asin: asin,  // Include ASIN in return value
             format: 'pdf',
             converted: false
           };
@@ -1030,14 +1031,17 @@ export class SummaryForge {
       const sanitized = this.sanitizeTextForAudio(text);
       console.log(`📝 Sanitized text: ${text.length} → ${sanitized.length} chars`);
       
-      // ElevenLabs has a character limit, so we'll truncate if needed
-      const maxAudioChars = 50000; // Adjust based on your plan
+      // ElevenLabs Turbo v2.5 supports up to 40,000 characters per request
+      const maxAudioChars = 40000;
       let textToConvert = sanitized;
       
       if (sanitized.length > maxAudioChars) {
-        console.log(`⚠️  Text is ${sanitized.length} chars, truncating to ${maxAudioChars} chars for audio`);
-        textToConvert = sanitized.slice(0, maxAudioChars) + "\n\n[Audio summary truncated due to length]";
+        console.log(`⚠️  Text is ${sanitized.length} chars, exceeds ${maxAudioChars} char limit`);
+        console.log(`   Truncating to ${maxAudioChars} chars for audio generation...`);
+        textToConvert = sanitized.slice(0, maxAudioChars) + "\n\n[Audio summary truncated due to length. Full summary available in text/PDF formats.]";
       }
+      
+      console.log(`🎵 Generating audio for ${textToConvert.length} characters (estimated ${Math.ceil(textToConvert.length / 1000)} minutes)...`);
 
       const audio = await this.elevenlabs.generate({
         voice: this.voiceId,
@@ -1195,7 +1199,7 @@ export class SummaryForge {
   /**
    * Process a book file (PDF or EPUB)
    */
-  async processFile(filePath) {
+  async processFile(filePath, asin = null) {
     const ext = path.extname(filePath).toLowerCase();
     let pdfPath = filePath;
     let epubPath = null;
@@ -1210,9 +1214,11 @@ export class SummaryForge {
       throw new Error(`Unsupported file type: ${ext}. Only .pdf and .epub are supported.`);
     }
 
-    const basename = this.sanitizeFilename(path.basename(filePath));
+    // Create basename with ASIN if available
+    const titlePart = this.sanitizeFilename(path.basename(filePath));
+    const basename = asin ? `${titlePart}_${asin}` : titlePart;
     
-    // Create output directory structure: ./uploads/<title>/
+    // Create output directory structure: ./uploads/<title>_<asin>/
     const bookDir = path.join('uploads', basename);
     await fsp.mkdir(bookDir, { recursive: true });
     console.log(`📁 Created directory: ${bookDir}`);
@@ -1277,6 +1283,7 @@ export class SummaryForge {
       directory: bookDir,
       archive: archiveName,
       hasAudio: !!outputs.summaryMp3,
+      asin: asin,  // Include ASIN in return value
       costs: this.getCostSummary()
     };
   }

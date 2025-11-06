@@ -594,7 +594,7 @@ async function searchAndDisplay(title, force = false) {
       
       if (shouldProcess) {
         downloadSpinner.start('Processing book...');
-        const result = await forge.processFile(download.filepath);
+        const result = await forge.processFile(download.filepath, download.asin);
         downloadSpinner.stop();
         console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
         
@@ -603,7 +603,11 @@ async function searchAndDisplay(title, force = false) {
         console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
         console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
         console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-        console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+        console.log(chalk.yellow(`   Total:              ${result.costs.total}`));
+        
+        // Show Amazon affiliate link at the end
+        console.log(chalk.blue('\n🛒 Buy on Amazon (affiliate link):'));
+        console.log(chalk.cyan(`   https://www.amazon.com/dp/${selectedBook.asin}?tag=summaryforge-20\n`));
       }
     } catch (error) {
       downloadSpinner.stop();
