@@ -37,7 +37,7 @@
     "inquirer": "^10.2.2",
     "openai": "^6.8.1",
     "ora": "^8.1.0",
-    "pdf-parse": "^1.1.1",
+    "pdfkit": "^0.17.2",
     "puppeteer": "^23.11.1"
   },
   "devDependencies": {

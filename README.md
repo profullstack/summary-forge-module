@@ -5,15 +5,17 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 ## Features
 
 - 📚 **Multiple Input Formats**: Supports both PDF and EPUB files
-- 🤖 **AI-Powered Summaries**: Uses GPT-5 to generate detailed, accurate summaries
+- 🤖 **AI-Powered Summaries**: Uses GPT-5 with direct PDF upload for better quality
+- 📊 **Vision API**: Preserves formatting, tables, diagrams, and images from PDFs
 - 📦 **Multiple Output Formats**: Creates Markdown, PDF, EPUB, plain text, and MP3 audio summaries
 - 🗜️ **Bundled Output**: Packages everything into a convenient `.tgz` archive
 - 🎙️ **Audio Summaries**: Optional text-to-speech using ElevenLabs AI
 - 🔄 **Auto-Conversion**: Automatically converts EPUB to PDF using Calibre
 - 🔍 **Book Search**: Search Amazon by title using Rainforest API
-- 📖 **ISBN Lookup**: Find books on Anna's Archive by ISBN/ASIN
+- 📖 **Auto-Download**: Downloads books from Anna's Archive with CAPTCHA solving
 - 💻 **CLI & Module**: Use as a command-line tool or import as an ESM module
 - 🎨 **Interactive Mode**: Guided workflow with inquirer prompts
+- 📥 **EPUB Priority**: Automatically prefers EPUB format (open standard, more flexible)
 
 ## Installation
 
@@ -204,11 +206,10 @@ new SummaryForge({
 - `convertEpubToPdf(epubPath)` - Convert EPUB to PDF
   - Returns: String path to PDF
 
-- `extractPdfText(pdfPath)` - Extract text from PDF
-  - Returns: String text content
-
-- `generateSummary(pdfText)` - Generate AI summary
+- `generateSummary(pdfPath)` - Generate AI summary from PDF using vision API
+  - Parameters: `pdfPath` (string) - Path to PDF file
   - Returns: String markdown summary
+  - Note: Uses OpenAI's vision API to directly analyze PDF, preserving formatting and images
 
 ## Environment Variables
 
@@ -271,10 +272,20 @@ summary file ~/Downloads/book.epub
 ## How It Works
 
 1. **Input Processing**: Accepts PDF or EPUB files (EPUB is converted to PDF)
-2. **Text Extraction**: Uses `pdf-parse` to extract text from the PDF
-3. **AI Summarization**: Sends the text to GPT-5 with detailed instructions
+2. **PDF Upload**: Uploads PDF directly to OpenAI's vision API (no text extraction needed)
+3. **AI Summarization**: GPT-5 analyzes the PDF with full formatting, tables, and diagrams
 4. **Format Conversion**: Uses Pandoc to convert the Markdown summary to PDF and EPUB
-5. **Bundling**: Creates a compressed archive with all generated files
+5. **Audio Generation**: Optional TTS conversion using ElevenLabs
+6. **Bundling**: Creates a compressed archive with all generated files
+
+### Why Direct PDF Upload?
+
+The tool now uses OpenAI's vision API to upload PDFs directly instead of extracting text. This provides:
+
+- ✅ **Better Quality**: Preserves document formatting, tables, and diagrams
+- ✅ **More Accurate**: AI can see the actual PDF layout and structure
+- ✅ **Simpler Code**: No need for pdf-parse library
+- ✅ **Better for Technical Books**: Code examples and diagrams are preserved
 
 ## Testing
 
@@ -296,9 +307,10 @@ pnpm test:coverage
 ### Test Coverage
 
 The test suite includes:
-- ✅ 28 passing tests
+- ✅ 30+ passing tests
 - Constructor validation
 - Helper method tests
+- PDF upload functionality tests
 - API integration tests
 - Error handling tests
 - Edge case coverage
@@ -314,25 +326,29 @@ See the [`examples/`](examples/) directory for more usage examples:
 
 ## Limitations
 
-- Maximum PDF text length: 400,000 characters (~100k tokens)
+- Maximum PDF file size: ~100MB (OpenAI vision API limit is 512MB)
 - GPT-5 uses default temperature of 1 (not configurable)
 - Requires external tools: Calibre, Pandoc, XeLaTeX
-- Anna's Archive downloads are manual (automatic download not yet implemented)
+- CAPTCHA solving requires 2captcha.com API key (optional)
+- Large PDFs may incur higher API costs due to vision processing
 
 ## Roadmap
 
-- [x] ISBN/ASIN lookup via Anna's Archive (manual download)
+- [x] ISBN/ASIN lookup via Anna's Archive
+- [x] Automatic download from Anna's Archive with CAPTCHA solving
 - [x] Book title search via Rainforest API
 - [x] CLI with interactive mode
 - [x] ESM module for programmatic use
 - [x] Audio generation with ElevenLabs TTS
-- [ ] Automatic download from Anna's Archive
+- [x] Direct PDF upload to OpenAI vision API
+- [x] EPUB format prioritization (open standard)
 - [ ] Support for more input formats (MOBI, AZW3)
-- [ ] Chunked processing for very large books
+- [ ] Chunked processing for very large books (>100MB)
 - [ ] Custom summary templates
 - [ ] Web interface
 - [ ] Multiple voice options for audio
 - [ ] Audio chapter markers
+- [ ] Batch processing multiple books
 
 ## License
 

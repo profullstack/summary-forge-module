@@ -9,10 +9,10 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import OpenAI from "openai";
-import pdfParse from "pdf-parse";
 import { ElevenLabsClient } from "elevenlabs";
 import puppeteer from "puppeteer";
 import dotenv from "dotenv";
+import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 
 dotenv.config();
 
@@ -323,15 +323,59 @@ export class SummaryForge {
   }
 
   /**
-   * Get download URL using Puppeteer with CAPTCHA solving
+   * Extract download links from HTML (same method as test-puppeteer.js)
+   * Prioritizes EPUB over PDF as EPUB is an open standard
    */
-  async getDownloadUrlWithPuppeteer(url, page) {
-    console.log(`🌐 Navigating to download page: ${url}`);
+  extractLinks(html, baseUrl) {
+    const regex = /href=["']([^"']+\.(?:pdf|epub)(?:\?[^"']*)?)["']/gi;
+    const epubLinks = new Set();
+    const pdfLinks = new Set();
+    let m;
+    while ((m = regex.exec(html))) {
+      let link = m[1];
+      try {
+        link = new URL(link, baseUrl).toString();
+      } catch {}
+      
+      // Separate EPUB and PDF links
+      if (link.toLowerCase().includes('.epub')) {
+        epubLinks.add(link);
+      } else if (link.toLowerCase().includes('.pdf')) {
+        pdfLinks.add(link);
+      }
+    }
+    
+    // Return EPUB links first, then PDF links
+    return [...Array.from(epubLinks), ...Array.from(pdfLinks)];
+  }
+
+  /**
+   * Write debug artifacts (same as test-puppeteer.js)
+   */
+  async writeArtifacts(title, html, outputDir) {
+    const pagePath = path.join(outputDir, "page.html");
+    const titlePath = path.join(outputDir, "page.title.txt");
+    const previewPath = path.join(outputDir, "page.preview.txt");
+
+    await fsp.writeFile(pagePath, html, "utf8");
+    await fsp.writeFile(titlePath, (title || "").trim() + "\n", "utf8");
+
+    const preview = html.replace(/\s+/g, " ").slice(0, 300);
+    await fsp.writeFile(previewPath, preview + (html.length > 300 ? "..." : "") + "\n", "utf8");
+
+    return { pagePath, titlePath, previewPath };
+  }
+
+  /**
+   * Get download URL using Puppeteer with CAPTCHA solving (same flow as test-puppeteer.js)
+   */
+  async getDownloadUrlWithPuppeteer(url, page, outputDir) {
+    console.log(`🌐 Navigating to: ${url}`);
     await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
 
-    // Wait 15 seconds for DDoS-Guard page to load CAPTCHA or auto-redirect
-    console.log("⏳ Waiting 15 seconds for DDoS-Guard CAPTCHA/redirect...");
-    await new Promise(resolve => setTimeout(resolve, 15000));
+    // Wait 10 seconds for DDoS-Guard page to load CAPTCHA or auto-redirect
+    console.log("⏳ Waiting 10 seconds for DDoS-Guard CAPTCHA/redirect...");
+    await new Promise(resolve => setTimeout(resolve, 10000));
 
     // Check and solve CAPTCHA if present
     const captchaSolved = await this.solveCaptcha(page);
@@ -342,211 +386,52 @@ export class SummaryForge {
         console.log("⚠️ No navigation detected after CAPTCHA solve");
       });
       
-      // Wait another 15 seconds after solving for any additional redirects
-      console.log("⏳ Waiting 15 seconds for post-CAPTCHA redirect...");
-      await new Promise(resolve => setTimeout(resolve, 15000));
+      // Wait another 10 seconds after solving for any additional redirects
+      console.log("⏳ Waiting 10 seconds for post-CAPTCHA redirect...");
+      await new Promise(resolve => setTimeout(resolve, 10000));
     }
-    
-    // Wait for any dynamic content to load (JavaScript execution)
-    console.log("⏳ Waiting 5 seconds for dynamic content to load...");
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    // Wait for network to be idle again after dynamic content
-    await page.waitForNetworkIdle({ timeout: 10000 }).catch(() => {
-      console.log("⚠️ Network did not become idle, continuing anyway...");
-    });
 
-    // Get final page content and URL
+    // Get final page content
+    const title = await page.title();
     const html = await page.content();
-    const currentUrl = page.url();
-    const pageTitle = await page.title();
-    
-    console.log(`📄 Page title: ${pageTitle}`);
-    console.log(`🔗 Current URL: ${currentUrl}`);
-    console.log(`📏 HTML length: ${html.length} characters`);
-    
-    // Save HTML to file for debugging (this is the actual download page now)
-    const debugHtmlPath = '/tmp/annas-archive-download-page.html';
-    try {
-      await fsp.writeFile(debugHtmlPath, html, 'utf8');
-      console.log(`💾 Saved download page HTML to ${debugHtmlPath} for debugging`);
-    } catch (err) {
-      console.log(`⚠️  Could not save debug HTML: ${err.message}`);
-    }
-    
-    // Check if we still have a CAPTCHA or protection page
+
+    // Save debug artifacts
+    const { pagePath, titlePath, previewPath } = await this.writeArtifacts(title, html, outputDir);
+    console.log("💾 Saved:", pagePath);
+    console.log("💾 Saved:", titlePath);
+    console.log("💾 Saved:", previewPath);
+
+    // Check if we still have a CAPTCHA page
     const isCaptcha = /checking your browser/i.test(html) ||
                       /ddg-captcha/i.test(html) ||
-                      /complete the manual check/i.test(html) ||
-                      /cloudflare/i.test(html) ||
-                      /just a moment/i.test(html);
+                      /complete the manual check/i.test(html);
 
     if (isCaptcha) {
-      console.log("⚠️ Still on protection page, could not bypass");
-      console.log(`   Page title: ${pageTitle}`);
-      console.log(`   Current URL: ${currentUrl}`);
+      console.error("\n❌ Still on CAPTCHA page after solving attempt");
+      console.error("The CAPTCHA may not have been solved correctly.");
       return null;
     }
+
+    // Extract links using the same method as test-puppeteer.js
+    const links = this.extractLinks(html, url);
     
-    console.log("🔍 Attempting to extract download URL...");
-    
-    // Try multiple methods to extract download URL
-    
-    // Method 1: Look for Anna's Archive specific download URL patterns
-    console.log("   Method 1: Searching for Anna's Archive download URLs in DOM...");
-    const downloadUrl = await page.evaluate(() => {
-      const results = { method: null, url: null, debug: [] };
+    if (links.length > 0) {
+      const epubCount = links.filter(l => l.toLowerCase().includes('.epub')).length;
+      const pdfCount = links.filter(l => l.toLowerCase().includes('.pdf')).length;
       
-      // Method 1a: Look for URLs in bg-gray-200 spans (Anna's Archive style)
-      const graySpans = document.querySelectorAll('span.bg-gray-200');
-      results.debug.push(`Found ${graySpans.length} gray spans`);
-      for (const span of graySpans) {
-        const text = span.textContent.trim();
-        results.debug.push(`Gray span text: ${text.substring(0, 100)}...`);
-        if (text.startsWith('http') && (text.includes('.pdf') || text.includes('.epub'))) {
-          results.method = '1a: gray span';
-          results.url = text;
-          return results;
-        }
+      console.log(`\n🔎 Found ${links.length} candidate links (${epubCount} epub, ${pdfCount} pdf):`);
+      for (const l of links) {
+        const format = l.toLowerCase().includes('.epub') ? '[EPUB]' : '[PDF]';
+        console.log(`  - ${format} ${l}`);
       }
       
-      // Method 1b: Look for URLs in onclick attributes (copy buttons)
-      const copyButtons = document.querySelectorAll('button[onclick*="clipboard.writeText"]');
-      results.debug.push(`Found ${copyButtons.length} copy buttons`);
-      for (const button of copyButtons) {
-        const onclick = button.getAttribute('onclick');
-        const urlMatch = onclick.match(/writeText\(['"]([^'"]+)['"]\)/);
-        if (urlMatch) {
-          results.debug.push(`Copy button URL: ${urlMatch[1].substring(0, 100)}...`);
-          if (urlMatch[1].includes('.pdf') || urlMatch[1].includes('.epub')) {
-            results.method = '1b: copy button';
-            results.url = urlMatch[1];
-            return results;
-          }
-        }
-      }
-      
-      // Method 1c: Look for direct download links
-      const downloadLink = document.querySelector('a[href*=".epub"]') ||
-                          document.querySelector('a[href*=".pdf"]') ||
-                          document.querySelector('a[download]');
-      
-      if (downloadLink) {
-        results.method = '1c: direct link';
-        results.url = downloadLink.href;
-        results.debug.push(`Direct link found: ${downloadLink.href}`);
-        return results;
-      }
-      
-      // Method 1d: Look for meta refresh or redirect
-      const metaRefresh = document.querySelector('meta[http-equiv="refresh"]');
-      if (metaRefresh) {
-        const content = metaRefresh.getAttribute('content');
-        const urlMatch = content.match(/url=(.+)/i);
-        if (urlMatch) {
-          results.method = '1d: meta refresh';
-          results.url = urlMatch[1];
-          return results;
-        }
-      }
-      
-      return results;
-    });
-    
-    // Log debug information
-    if (downloadUrl.debug && downloadUrl.debug.length > 0) {
-      console.log("   Debug info:");
-      downloadUrl.debug.forEach(msg => console.log(`      ${msg}`));
+      // Return the first link found (EPUB is prioritized)
+      const selectedFormat = links[0].toLowerCase().includes('.epub') ? 'EPUB' : 'PDF';
+      console.log(`✅ Selected ${selectedFormat} link (EPUB preferred)`);
+      return links[0];
     }
     
-    if (downloadUrl.url && (downloadUrl.url.includes('.epub') || downloadUrl.url.includes('.pdf'))) {
-      console.log(`   ✅ Found download URL via ${downloadUrl.method}: ${downloadUrl.url}`);
-      return downloadUrl.url;
-    }
-    console.log("   ❌ No download URL found in DOM");
-    
-    // Method 2: Extract from HTML using regex - search for any HTTP/HTTPS URLs with .pdf or .epub
-    console.log("   Method 2: Searching entire HTML body for download URLs...");
-    
-    // Try multiple regex patterns to catch URLs in different formats
-    const patterns = [
-      /https?:\/\/[^\s"'<>]+\.(?:epub|pdf)/gi,  // Standard URLs
-      /https?:\/\/[^\s"'<>)]+\.(?:epub|pdf)/gi, // URLs before closing paren
-      /https?:\/\/[^"'<>\s]+\.(?:epub|pdf)/gi,  // More permissive
-    ];
-    
-    let allMatches = [];
-    for (const pattern of patterns) {
-      const matches = html.match(pattern);
-      if (matches) {
-        allMatches = allMatches.concat(matches);
-      }
-    }
-    
-    // Remove duplicates
-    allMatches = [...new Set(allMatches)];
-    
-    if (allMatches.length > 0) {
-      console.log(`   Found ${allMatches.length} potential download URLs in HTML`);
-      
-      // Filter out annas-archive.org URLs (we want external download servers)
-      const externalUrls = allMatches.filter(url => !url.includes('annas-archive.org'));
-      
-      if (externalUrls.length > 0) {
-        console.log(`   ✅ Found ${externalUrls.length} external download URLs:`);
-        externalUrls.forEach((url, idx) => {
-          const decoded = decodeURIComponent(url);
-          console.log(`      ${idx + 1}. ${decoded.substring(0, 150)}${decoded.length > 150 ? '...' : ''}`);
-        });
-        return decodeURIComponent(externalUrls[0]);
-      }
-      
-      // If no external URLs, use any URL we found
-      console.log(`   ⚠️  No external URLs found, using first match:`);
-      allMatches.forEach((url, idx) => {
-        const decoded = decodeURIComponent(url);
-        console.log(`      ${idx + 1}. ${decoded.substring(0, 150)}${decoded.length > 150 ? '...' : ''}`);
-      });
-      return decodeURIComponent(allMatches[0]);
-    }
-    console.log("   ❌ No download URLs found via regex");
-    console.log(`   💡 Check ${debugHtmlPath} to see the actual HTML content`);
-    
-    // Method 3: Extract all text content and search for URLs
-    console.log("   Method 3: Extracting all visible text and searching for URLs...");
-    const pageText = await page.evaluate(() => document.body.innerText || document.body.textContent);
-    
-    const textUrlPattern = /https?:\/\/[^\s]+\.(?:epub|pdf)/gi;
-    const textMatches = pageText.match(textUrlPattern);
-    
-    if (textMatches && textMatches.length > 0) {
-      console.log(`   Found ${textMatches.length} URLs in page text:`);
-      const externalTextUrls = textMatches.filter(url => !url.includes('annas-archive.org'));
-      
-      if (externalTextUrls.length > 0) {
-        console.log(`   ✅ Found ${externalTextUrls.length} external URLs in text:`);
-        externalTextUrls.forEach((url, idx) => {
-          console.log(`      ${idx + 1}. ${url.substring(0, 150)}${url.length > 150 ? '...' : ''}`);
-        });
-        return externalTextUrls[0];
-      }
-    }
-    console.log("   ❌ No URLs found in page text");
-    
-    // Method 4: Check if current URL is already a download URL
-    console.log("   Method 4: Checking if current URL is download URL...");
-    if (currentUrl.includes('.epub') || currentUrl.includes('.pdf')) {
-      console.log(`   ✅ Current URL is download URL: ${currentUrl}`);
-      return currentUrl;
-    }
-    console.log("   ❌ Current URL is not a download URL");
-    
-    console.log(`\n⚠️ No download URL found after trying all methods`);
-    console.log(`   Page title: ${pageTitle}`);
-    console.log(`   Current URL: ${currentUrl}`);
-    console.log(`   HTML length: ${html.length} characters`);
-    console.log(`   💡 Check ${debugHtmlPath} to see the actual HTML content`);
-    console.log(`   💡 Or use Ctrl+F in DevTools Elements tab to search for ".pdf" or ".epub"\n`);
+    console.log("\n⚠️ No .pdf/.epub links found in rendered HTML.");
     return null;
   }
 
@@ -591,9 +476,10 @@ export class SummaryForge {
 
   /**
    * Get Anna's Archive search URL for ASIN
-   * Searches for epub and pdf formats, prioritizing epub
+   * Searches for epub and pdf formats, prioritizing epub by listing it first
    */
   getAnnasArchiveUrl(asin) {
+    // Note: ext=epub comes before ext=pdf to prioritize EPUB results
     return `https://annas-archive.org/search?index=&page=1&sort=&ext=epub&ext=pdf&display=list_compact&q=${asin}`;
   }
 
@@ -669,18 +555,23 @@ export class SummaryForge {
       await page.waitForSelector('.js-aarecord-list-outer', { timeout: 10000 });
       
       // Get all results with their format information
+      // Look for the actual file extension in the result, not just mentions of the format
       const results = await page.$$eval('.js-aarecord-list-outer', (containers) => {
-        return containers.map(container => {
+        return containers.map((container, index) => {
           const link = container.querySelector('a[href^="/md5/"]');
-          const text = container.textContent.toLowerCase();
-          const isEpub = text.includes('.epub') || text.includes('epub');
-          const isPdf = text.includes('.pdf') || text.includes('pdf');
+          const text = container.textContent;
+          
+          // Look for actual file extensions in the text
+          // Anna's Archive shows format like "epub, 123 KB" or "pdf, 2.5 MB"
+          const hasEpubExtension = /\.epub\b/i.test(text) || /\bepub\s*,/i.test(text);
+          const hasPdfExtension = /\.pdf\b/i.test(text) || /\bpdf\s*,/i.test(text);
           
           return {
             href: link ? link.getAttribute('href') : null,
-            isEpub,
-            isPdf,
-            text: container.textContent.trim().substring(0, 100)
+            isEpub: hasEpubExtension,
+            isPdf: hasPdfExtension,
+            text: text.trim().substring(0, 150),
+            index
           };
         }).filter(r => r.href && (r.isEpub || r.isPdf));
       });
@@ -689,12 +580,44 @@ export class SummaryForge {
         throw new Error('No epub or pdf results found on Anna\'s Archive');
       }
       
-      // Prioritize epub over pdf
-      const preferredResult = results.find(r => r.isEpub) || results[0];
-      const format = preferredResult.isEpub ? 'EPUB' : 'PDF';
+      // Separate EPUB and PDF results
+      const epubResults = results.filter(r => r.isEpub && !r.isPdf);
+      const pdfResults = results.filter(r => r.isPdf && !r.isEpub);
+      const bothResults = results.filter(r => r.isEpub && r.isPdf);
       
-      console.log(`📖 Found ${results.length} results (${results.filter(r => r.isEpub).length} epub, ${results.filter(r => r.isPdf).length} pdf)`);
-      console.log(`✅ Selected ${format} format (preferred)`);
+      console.log(`📖 Found ${results.length} total results:`);
+      console.log(`   - ${epubResults.length} EPUB-only results`);
+      console.log(`   - ${pdfResults.length} PDF-only results`);
+      console.log(`   - ${bothResults.length} results with both formats`);
+      
+      // Debug: Show first few results
+      if (results.length > 0) {
+        console.log(`\n📋 First 3 results (in page order):`);
+        results.slice(0, 3).forEach(r => {
+          const formats = [];
+          if (r.isEpub) formats.push('EPUB');
+          if (r.isPdf) formats.push('PDF');
+          console.log(`   ${r.index + 1}. [${formats.join('/')}] ${r.text.substring(0, 80)}...`);
+        });
+      }
+      
+      // Prioritize: EPUB-only > both formats > PDF-only
+      let preferredResult;
+      let format;
+      
+      if (epubResults.length > 0) {
+        preferredResult = epubResults[0];
+        format = 'EPUB';
+        console.log(`✅ Selected EPUB-only result (index ${preferredResult.index})`);
+      } else if (bothResults.length > 0) {
+        preferredResult = bothResults[0];
+        format = 'EPUB/PDF';
+        console.log(`✅ Selected result with both formats (index ${preferredResult.index}), will prefer EPUB download`);
+      } else {
+        preferredResult = pdfResults[0];
+        format = 'PDF';
+        console.log(`✅ Selected PDF-only result (index ${preferredResult.index}) - no EPUB available`);
+      }
       
       const bookPageUrl = `https://annas-archive.org${preferredResult.href}`;
       console.log(`📖 Book page: ${bookPageUrl}`);
@@ -761,7 +684,7 @@ export class SummaryForge {
         try {
           // Use Puppeteer with CAPTCHA solving to get the download URL
           console.log(`🌐 Fetching download URL with Puppeteer + 2captcha...`);
-          const downloadUrl = await this.getDownloadUrlWithPuppeteer(slowLinks[i], page);
+          const downloadUrl = await this.getDownloadUrlWithPuppeteer(slowLinks[i], page, bookDir);
           
           if (!downloadUrl) {
             console.log(`⚠️  Server ${i + 1} - no download URL found`);
@@ -844,26 +767,25 @@ export class SummaryForge {
   }
 
   /**
-   * Extract text from PDF
+   * Generate summary using GPT-5 with direct PDF upload
    */
-  async extractPdfText(pdfPath) {
-    console.log("📖 Extracting text from PDF…");
-    const pdfBuffer = await fsp.readFile(pdfPath);
-    const pdfData = await pdfParse(pdfBuffer);
-    const pdfText = pdfData.text;
+  async generateSummary(pdfPath) {
+    console.log("📖 Uploading PDF to OpenAI...");
     
-    if (!pdfText || pdfText.trim().length < 100) {
-      throw new Error("PDF appears to be empty or unreadable");
+    // Read PDF file
+    const pdfBuffer = await fsp.readFile(pdfPath);
+    const pdfSizeKB = (pdfBuffer.length / 1024).toFixed(2);
+    const pdfSizeMB = (pdfBuffer.length / 1024 / 1024).toFixed(2);
+    console.log(`📊 PDF size: ${pdfSizeMB} MB (${pdfSizeKB} KB)`);
+    
+    // Check file size (OpenAI has limits, typically 512MB but let's warn at 100MB)
+    if (pdfBuffer.length > 100 * 1024 * 1024) {
+      console.log(`⚠️  Warning: Large PDF file (${pdfSizeMB} MB). This may take longer and cost more.`);
     }
     
-    console.log(`✅ Extracted ${pdfText.length} characters from PDF`);
-    return pdfText;
-  }
-
-  /**
-   * Generate summary using GPT-5
-   */
-  async generateSummary(pdfText) {
+    // Convert PDF to base64 for upload
+    const pdfBase64 = pdfBuffer.toString('base64');
+    
     const systemPrompt = [
       "You are an expert technical writer. Produce a single, self-contained Markdown file.",
       "Source: the attached PDF. Do not hallucinate; pull claims from the PDF.",
@@ -882,13 +804,7 @@ export class SummaryForge {
       "Output ONLY Markdown content (no JSON, no preambles).",
     ].join("\n");
 
-    console.log("🧠 Asking the model to generate the Markdown summary…");
-    
-    let textToSend = pdfText;
-    if (pdfText.length > this.maxChars) {
-      console.log(`⚠️  PDF text is ${pdfText.length} chars, truncating to ${this.maxChars} chars`);
-      textToSend = pdfText.slice(0, this.maxChars);
-    }
+    console.log("🧠 Asking the model to generate the Markdown summary from PDF...");
     
     const resp = await this.openai.chat.completions.create({
       model: API_MODEL,
@@ -896,7 +812,16 @@ export class SummaryForge {
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `${userPrompt}\n\n--- PDF CONTENT ---\n${textToSend}`
+          content: [
+            { type: "text", text: userPrompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:application/pdf;base64,${pdfBase64}`,
+                detail: "high"
+              }
+            }
+          ]
         },
       ],
       max_completion_tokens: this.maxTokens,
@@ -906,6 +831,7 @@ export class SummaryForge {
     if (resp.usage) {
       const cost = this.trackOpenAICost(resp.usage);
       console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
+      console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
     }
 
     const md = resp.choices[0]?.message?.content ?? "";
@@ -917,7 +843,69 @@ export class SummaryForge {
   }
 
   /**
+   * Generate audio-friendly script from markdown summary
+   * Converts markdown to natural, conversational narration
+   */
+  async generateAudioScript(markdown) {
+    console.log("🎙️  Generating audio-friendly narration script...");
+    
+    const systemPrompt = [
+      "You are an expert audiobook narrator and script writer.",
+      "Convert the provided markdown summary into a natural, conversational script suitable for text-to-speech narration.",
+      "Requirements:",
+      "- Write in a warm, engaging, conversational tone",
+      "- Convert bullet points into flowing sentences",
+      "- Replace markdown formatting with natural speech patterns",
+      "- Add smooth transitions between sections",
+      "- Use phrases like 'Let's explore...', 'Now, moving on to...', 'It's important to note that...'",
+      "- Spell out acronyms on first use, then use the acronym",
+      "- Convert lists into narrative form",
+      "- Remove or describe any code examples, ASCII art, or diagrams",
+      "- Keep the content informative but make it sound like a human narrator speaking",
+      "- Maintain all key information and concepts from the original",
+      "Output ONLY the narration script, no meta-commentary."
+    ].join("\n");
+
+    const userPrompt = [
+      "Convert this markdown summary into a natural audiobook narration script:",
+      "",
+      markdown
+    ].join("\n");
+
+    try {
+      const resp = await this.openai.chat.completions.create({
+        model: API_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
+        max_completion_tokens: this.maxTokens,
+      });
+
+      // Track OpenAI costs
+      if (resp.usage) {
+        const cost = this.trackOpenAICost(resp.usage);
+        console.log(`💰 OpenAI cost for audio script: $${cost.toFixed(4)}`);
+        console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+      }
+
+      const script = resp.choices[0]?.message?.content ?? "";
+      if (!script || script.trim().length < 100) {
+        throw new Error("Model returned unexpectedly short audio script");
+      }
+
+      console.log(`✅ Generated audio script: ${script.length} characters`);
+      return script;
+    } catch (error) {
+      console.error(`⚠️  Failed to generate audio script: ${error.message}`);
+      console.log("ℹ️  Falling back to sanitized markdown");
+      return this.sanitizeTextForAudio(markdown);
+    }
+  }
+
+  /**
    * Sanitize text for audio generation (remove ASCII art, code blocks, etc.)
+   * This is a fallback method if AI script generation fails
    */
   sanitizeTextForAudio(text) {
     let sanitized = text;
@@ -1014,7 +1002,9 @@ export class SummaryForge {
     const summaryTxt = path.join(outputDir, `${basename}.summary.txt`);
     const summaryPdf = path.join(outputDir, `${basename}.summary.pdf`);
     const summaryEpub = path.join(outputDir, `${basename}.summary.epub`);
+    const audioScript = path.join(outputDir, `${basename}.audio-script.txt`);
     const summaryMp3 = path.join(outputDir, `${basename}.summary.mp3`);
+    const flashcardsPdf = path.join(outputDir, `${basename}.flashcards.pdf`);
 
     await fsp.writeFile(summaryMd, markdown, "utf8");
     await fsp.writeFile(summaryTxt, markdown, "utf8");
@@ -1040,15 +1030,50 @@ export class SummaryForge {
       "--toc",
     ]);
 
-    // Generate audio if ElevenLabs is configured
-    const audioPath = await this.generateAudio(markdown, summaryMp3);
+    // Generate audio-friendly script and audio if ElevenLabs is configured
+    let audioPath = null;
+    let audioScriptPath = null;
+    
+    if (this.elevenlabs) {
+      // Generate audio script
+      const script = await this.generateAudioScript(markdown);
+      await fsp.writeFile(audioScript, script, "utf8");
+      audioScriptPath = audioScript;
+      console.log(`✅ Wrote audio script: ${audioScript}`);
+      
+      // Generate audio from script
+      audioPath = await this.generateAudio(script, summaryMp3);
+    }
+
+    // Generate flashcards PDF
+    console.log("🃏 Generating flashcards PDF...");
+    let flashcardsPath = null;
+    try {
+      const flashcards = extractFlashcards(markdown, { maxCards: 100 });
+      
+      if (flashcards.length > 0) {
+        console.log(`📚 Extracted ${flashcards.length} flashcards from summary`);
+        await generateFlashcardsPDF(flashcards, flashcardsPdf, {
+          title: basename.replace(/_/g, ' '),
+          branding: 'SummaryForge.com'
+        });
+        flashcardsPath = flashcardsPdf;
+        console.log(`✅ Generated flashcards: ${flashcardsPdf}`);
+      } else {
+        console.log("ℹ️  No flashcards found in summary (no Q&A patterns detected)");
+      }
+    } catch (error) {
+      console.log(`⚠️  Failed to generate flashcards: ${error.message}`);
+    }
 
     return {
       summaryMd,
       summaryTxt,
       summaryPdf,
       summaryEpub,
-      summaryMp3: audioPath
+      audioScript: audioScriptPath,
+      summaryMp3: audioPath,
+      flashcardsPdf: flashcardsPath
     };
   }
 
@@ -1096,8 +1121,7 @@ export class SummaryForge {
     await fsp.mkdir(bookDir, { recursive: true });
     console.log(`📁 Created directory: ${bookDir}`);
     
-    const pdfText = await this.extractPdfText(pdfPath);
-    const markdown = await this.generateSummary(pdfText);
+    const markdown = await this.generateSummary(pdfPath);
     
     // Generate output files in the book directory
     const outputs = await this.generateOutputFiles(markdown, basename, bookDir);
@@ -1116,9 +1140,19 @@ export class SummaryForge {
       files.push(renamedEpub);
     }
 
+    // Add audio script to list if it was generated
+    if (outputs.audioScript) {
+      files.push(outputs.audioScript);
+    }
+
     // Add audio file to list if it was generated
     if (outputs.summaryMp3) {
       files.push(outputs.summaryMp3);
+    }
+
+    // Add flashcards PDF to list if it was generated
+    if (outputs.flashcardsPdf) {
+      files.push(outputs.flashcardsPdf);
     }
 
     const archiveName = path.join(bookDir, `${basename}_bundle.tgz`);

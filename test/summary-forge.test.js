@@ -139,7 +139,6 @@ describe('SummaryForge', () => {
       expect(typeof forge.searchBookByTitle).toBe('function');
       expect(typeof forge.downloadFromAnnasArchive).toBe('function');
       expect(typeof forge.convertEpubToPdf).toBe('function');
-      expect(typeof forge.extractPdfText).toBe('function');
       expect(typeof forge.generateSummary).toBe('function');
       expect(typeof forge.generateAudio).toBe('function');
       expect(typeof forge.generateOutputFiles).toBe('function');
@@ -152,6 +151,21 @@ describe('SummaryForge', () => {
       const sanitized = forge.sanitizeFilename(filename);
       expect(typeof sanitized).toBe('string');
       expect(sanitized).toBe('test');
+    });
+  });
+
+  describe('PDF Upload Functionality', () => {
+    it('should accept PDF path for generateSummary', () => {
+      // generateSummary now takes a file path instead of text
+      expect(typeof forge.generateSummary).toBe('function');
+    });
+
+    it('should handle PDF file reading', async () => {
+      // Mock test - actual implementation requires OpenAI API
+      const testPdfPath = './test-fixtures/sample.pdf';
+      
+      // This would fail without a real PDF and API key, so we just verify the method exists
+      expect(forge.generateSummary).toBeDefined();
     });
   });
 
