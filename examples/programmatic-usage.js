@@ -1,10 +1,10 @@
 /**
  * Example: Using Summary Forge programmatically
- * 
+ *
  * This shows how to use Summary Forge as an ESM module in your own code
  */
 
-import { SummaryForge } from 'summary-forge';
+import { SummaryForge } from '@profullstack/summary-forge-module';
 
 // Example 1: Basic usage with environment variables
 async function example1() {

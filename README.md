@@ -1,6 +1,8 @@
-# Summary Forge
+# Summary Forge Module
 
 An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of technical books in multiple formats.
+
+**Repository:** [git@github.com:profullstack/summary-forge-module.git](https://github.com/profullstack/summary-forge-module)
 
 ## Features
 
@@ -23,13 +25,13 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 ### Global Installation (CLI)
 
 ```bash
-pnpm install -g summary-forge
+pnpm install -g @profullstack/summary-forge-module
 ```
 
 ### Local Installation (Module)
 
 ```bash
-pnpm add summary-forge
+pnpm add @profullstack/summary-forge-module
 ```
 
 ## Prerequisites
@@ -157,8 +159,8 @@ summary file --help
 ### Basic Example
 
 ```javascript
-import { SummaryForge } from 'summary-forge';
-import { loadConfig } from 'summary-forge/config';
+import { SummaryForge } from '@profullstack/summary-forge-module';
+import { loadConfig } from '@profullstack/summary-forge-module/config';
 
 // Load config from ~/.config/summary-forge/settings.json
 const config = await loadConfig();
@@ -171,7 +173,7 @@ console.log('Summary created:', result.archive);
 ### Configuration Options
 
 ```javascript
-import { SummaryForge } from 'summary-forge';
+import { SummaryForge } from '@profullstack/summary-forge-module';
 
 const forge = new SummaryForge({
   // Required
