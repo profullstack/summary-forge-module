@@ -8,8 +8,9 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 - 🤖 **AI-Powered Summaries**: Uses GPT-5 with direct PDF upload for better quality
 - 📊 **Vision API**: Preserves formatting, tables, diagrams, and images from PDFs
 - 📦 **Multiple Output Formats**: Creates Markdown, PDF, EPUB, plain text, and MP3 audio summaries
+- 🃏 **Printable Flashcards**: Generates double-sided flashcard PDFs for studying
+- 🎙️ **Natural Audio Narration**: AI-generated conversational audio script for better listening
 - 🗜️ **Bundled Output**: Packages everything into a convenient `.tgz` archive
-- 🎙️ **Audio Summaries**: Optional text-to-speech using ElevenLabs AI
 - 🔄 **Auto-Conversion**: Automatically converts EPUB to PDF using Calibre
 - 🔍 **Book Search**: Search Amazon by title using Rainforest API
 - 📖 **Auto-Download**: Downloads books from Anna's Archive with CAPTCHA solving

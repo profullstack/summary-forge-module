@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "description": "An intelligent tool that uses AI to create comprehensive summaries of technical books",
   "type": "module",
-  "main": "./src/summary-forge.js",
+  "main": "./src/index.js",
   "exports": {
     ".": {
-      "import": "./src/summary-forge.js"
+      "import": "./src/index.js",
+      "require": "./src/index.js"
+    },
+    "./flashcards": {
+      "import": "./src/flashcards.js"
     }
   },
   "bin": {
