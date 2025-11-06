@@ -22,6 +22,15 @@ describe('SummaryForge', () => {
     });
   });
 
+  afterEach(async () => {
+    // Cleanup only test-generated directories (uploads/file)
+    try {
+      await fs.rm('./uploads/file', { recursive: true, force: true });
+    } catch (err) {
+      // Ignore if doesn't exist
+    }
+  });
+
   describe('Constructor', () => {
     it('should create instance with required API key', () => {
       expect(forge).toBeInstanceOf(SummaryForge);
@@ -406,6 +415,83 @@ describe('SummaryForge - Bug Fixes and Enhancements', () => {
       // Full path would be: uploads/clean_code_b001gstoam/clean_code.pdf
       const fullPath = `uploads/${dirName}/${filename}`;
       expect(fullPath).toBe('uploads/clean_code_b001gstoam/clean_code.pdf');
+    });
+
+    it('should handle uppercase ASIN in title without creating duplicates', () => {
+      const title = 'A Philosophy of Software Design 2nd Edition 173210221X';
+      const asin = '173210221X';
+      
+      // Simulate the new logic
+      let sanitizedTitle = forge.sanitizeFilename(title);
+      const asinLower = asin.toLowerCase();
+      
+      // Remove ASIN from sanitized title if it's there (case-insensitive)
+      const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
+      sanitizedTitle = sanitizedTitle.replace(asinPattern, '');
+      
+      // Always append lowercase ASIN
+      const dirName = `${sanitizedTitle}_${asinLower}`;
+      
+      // Should only have lowercase ASIN, no duplicates
+      expect(dirName).toBe('a_philosophy_of_software_design_2nd_edition_173210221x');
+      expect(dirName.match(/173210221x/gi)?.length).toBe(1);
+      expect(dirName).not.toContain('173210221X'); // No uppercase
+    });
+
+    it('should handle mixed case ASIN consistently', () => {
+      const testCases = [
+        { title: 'Book Title 173210221X', asin: '173210221X' },
+        { title: 'Book Title 173210221x', asin: '173210221X' },
+        { title: 'Book Title', asin: '173210221X' },
+      ];
+      
+      testCases.forEach(({ title, asin }) => {
+        let sanitizedTitle = forge.sanitizeFilename(title);
+        const asinLower = asin.toLowerCase();
+        
+        const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
+        sanitizedTitle = sanitizedTitle.replace(asinPattern, '');
+        
+        const dirName = `${sanitizedTitle}_${asinLower}`;
+        
+        // All should produce the same result
+        expect(dirName).toBe('book_title_173210221x');
+        expect(dirName.match(/173210221x/gi)?.length).toBe(1);
+      });
+    });
+
+    it('should keep filenames clean without ASIN in processFile', () => {
+      const filePath = 'A Philosophy of Software Design.pdf';
+      const asin = '173210221X';
+      
+      // Simulate processFile logic
+      const basename = forge.sanitizeFilename(path.basename(filePath));
+      const asinLower = asin.toLowerCase();
+      
+      // Remove ASIN from basename if present
+      const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
+      const cleanBasename = basename.replace(asinPattern, '');
+      
+      // Directory name has ASIN
+      const dirName = `${cleanBasename}_${asinLower}`;
+      
+      // Filenames use basename WITHOUT ASIN
+      const summaryFile = `${basename}.summary.md`;
+      const pdfFile = `${basename}.pdf`;
+      const mp3File = `${basename}.summary.mp3`;
+      
+      // Directory should have ASIN
+      expect(dirName).toBe('a_philosophy_of_software_design_173210221x');
+      
+      // Files should NOT have ASIN
+      expect(summaryFile).toBe('a_philosophy_of_software_design.summary.md');
+      expect(pdfFile).toBe('a_philosophy_of_software_design.pdf');
+      expect(mp3File).toBe('a_philosophy_of_software_design.summary.mp3');
+      
+      // Verify no ASIN in filenames
+      expect(summaryFile).not.toContain(asinLower);
+      expect(pdfFile).not.toContain(asinLower);
+      expect(mp3File).not.toContain(asinLower);
     });
   });
 

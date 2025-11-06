@@ -418,10 +418,7 @@ export class SummaryForge {
     const title = await page.title();
     const html = await page.content();
 
-    // Create output directory if it doesn't exist (for debug artifacts)
-    await fsp.mkdir(outputDir, { recursive: true });
-
-    // Save debug artifacts
+    // Save debug artifacts (directory will be created by caller)
     const { pagePath, titlePath, previewPath } = await this.writeArtifacts(title, html, outputDir);
     console.log("💾 Saved:", pagePath);
     console.log("💾 Saved:", titlePath);
@@ -1295,18 +1292,28 @@ export class SummaryForge {
       throw new Error(`Unsupported file type: ${ext}. Only .pdf and .epub are supported.`);
     }
 
-    // Create basename with ASIN if available
-    const titlePart = this.sanitizeFilename(path.basename(filePath));
-    const basename = asin ? `${titlePart}_${asin}` : titlePart;
+    // Create basename WITHOUT ASIN for filenames
+    const basename = this.sanitizeFilename(path.basename(filePath));
+    
+    // Create directory name WITH ASIN
+    let dirName = basename;
+    if (asin) {
+      const asinLower = asin.toLowerCase();
+      // Remove ASIN from basename if it's there (case-insensitive)
+      const asinPattern = new RegExp(`_?${asinLower}$`, 'i');
+      const cleanBasename = basename.replace(asinPattern, '');
+      // Directory name has ASIN
+      dirName = `${cleanBasename}_${asinLower}`;
+    }
     
     // Create output directory structure: ./uploads/<title>_<asin>/
-    const bookDir = path.join('uploads', basename);
+    const bookDir = path.join('uploads', dirName);
     await fsp.mkdir(bookDir, { recursive: true });
     console.log(`📁 Created directory: ${bookDir}`);
     
     const markdown = await this.generateSummary(pdfPath);
     
-    // Generate output files in the book directory
+    // Generate output files using basename WITHOUT ASIN
     const outputs = await this.generateOutputFiles(markdown, basename, bookDir);
     
     // Copy original files to book directory with consistent naming
@@ -1341,7 +1348,7 @@ export class SummaryForge {
       files.push(outputs.flashcardsPdf);
     }
 
-    const archiveName = path.join(bookDir, `${basename}_bundle.tgz`);
+    const archiveName = path.join(bookDir, `${dirName}_bundle.tgz`);
     
     // Change to book directory for tar to create relative paths
     const originalCwd = process.cwd();
@@ -1362,6 +1369,7 @@ export class SummaryForge {
     
     return {
       basename,
+      dirName,
       markdown,
       files,
       directory: bookDir,
