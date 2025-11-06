@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import OpenAI from "openai";
 import { ElevenLabsClient } from "elevenlabs";
 import puppeteer from "puppeteer";
+import { PDFParse } from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 
 const API_MODEL = "gpt-5";
@@ -503,11 +504,11 @@ export class SummaryForge {
 
   /**
    * Get Anna's Archive search URL for ASIN
-   * Searches for PDF only - Anna's Archive sorts by best match by default
+   * Searches for PDF only, sorted by newest (highest quality)
    */
   getAnnasArchiveUrl(asin) {
-    // Only search for PDF, let Anna's Archive handle sorting by relevance
-    return `https://annas-archive.org/search?index=&page=1&sort=&ext=pdf&display=list_compact&q=${asin}`;
+    // Only search for PDF, sort by newest to get highest quality versions
+    return `https://annas-archive.org/search?index=&page=1&sort=newest&ext=pdf&display=list_compact&q=${asin}`;
   }
 
   /**
@@ -751,78 +752,10 @@ export class SummaryForge {
   }
 
   /**
-   * Convert PDF pages to images using Puppeteer
-   */
-  async convertPdfToImages(pdfPath, outputDir) {
-    console.log("📸 Converting PDF pages to images...");
-    
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    try {
-      const page = await browser.newPage();
-      
-      // Load the PDF in the browser
-      const pdfUrl = `file://${path.resolve(pdfPath)}`;
-      await page.goto(pdfUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-      
-      // Wait for PDF to render
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Get number of pages by checking the PDF viewer
-      const pageCount = await page.evaluate(() => {
-        // Try to get page count from PDF.js viewer if available
-        if (window.PDFViewerApplication?.pdfDocument) {
-          return window.PDFViewerApplication.pdfDocument.numPages;
-        }
-        return 1; // Fallback to single page
-      });
-      
-      console.log(`📄 PDF has ${pageCount} page(s)`);
-      
-      const screenshots = [];
-      
-      // Take screenshot of each page
-      for (let i = 1; i <= pageCount; i++) {
-        console.log(`📸 Capturing page ${i}/${pageCount}...`);
-        
-        // Navigate to specific page if multi-page
-        if (pageCount > 1) {
-          await page.evaluate((pageNum) => {
-            if (window.PDFViewerApplication) {
-              window.PDFViewerApplication.page = pageNum;
-            }
-          }, i);
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        
-        const screenshotPath = path.join(outputDir, `page_${i}.png`);
-        await page.screenshot({
-          path: screenshotPath,
-          fullPage: true,
-          type: 'png'
-        });
-        
-        screenshots.push(screenshotPath);
-        console.log(`✅ Saved: ${screenshotPath}`);
-      }
-      
-      await browser.close();
-      return screenshots;
-      
-    } catch (error) {
-      await browser.close();
-      throw new Error(`Failed to convert PDF to images: ${error.message}`);
-    }
-  }
-
-  /**
-   * Generate summary using GPT-5 vision with PDF screenshots
+   * Generate summary using GPT-5 with PDF file upload (with fallback to text extraction)
    */
   async generateSummary(pdfPath) {
-    console.log("📖 Processing PDF for OpenAI...");
+    console.log("📖 Processing PDF...");
     
     // Get file stats
     const stats = await fsp.stat(pdfPath);
@@ -830,60 +763,39 @@ export class SummaryForge {
     const pdfSizeMB = (stats.size / 1024 / 1024).toFixed(2);
     console.log(`📊 PDF size: ${pdfSizeMB} MB (${pdfSizeKB} KB)`);
     
-    // Check file size
-    if (stats.size > 100 * 1024 * 1024) {
-      console.log(`⚠️  Warning: Large PDF file (${pdfSizeMB} MB). This may take longer and cost more.`);
-    }
-    
+    // Try GPT-5 with file upload first
     try {
-      // Create temp directory for screenshots
-      const tempDir = path.join(path.dirname(pdfPath), '.pdf_screenshots');
-      await fsp.mkdir(tempDir, { recursive: true });
+      console.log("🔄 Attempting GPT-5 with PDF file upload...");
       
-      // Convert PDF pages to images
-      const screenshots = await this.convertPdfToImages(pdfPath, tempDir);
-      console.log(`✅ Converted ${screenshots.length} page(s) to images`);
+      // Upload PDF file to OpenAI
+      const fileStream = fs.createReadStream(pdfPath);
+      const file = await this.openai.files.create({
+        file: fileStream,
+        purpose: 'user_data'
+      });
       
-      // Read all screenshots as base64
-      const imageContents = await Promise.all(
-        screenshots.map(async (screenshotPath) => {
-          const imageBuffer = await fsp.readFile(screenshotPath);
-          const base64Image = imageBuffer.toString('base64');
-          return {
-            type: "image_url",
-            image_url: {
-              url: `data:image/png;base64,${base64Image}`,
-              detail: "high"
-            }
-          };
-        })
-      );
+      console.log(`✅ PDF uploaded. File ID: ${file.id}`);
       
       const systemPrompt = [
         "You are an expert technical writer. Produce a single, self-contained Markdown file.",
-        "Source: the attached PDF pages (as images). Do not hallucinate; pull claims from the PDF.",
+        "Source: the attached PDF. Do not hallucinate; pull claims from the PDF.",
         "Goal: Let a reader skip the book but learn the principles.",
         "Requirements:",
         "- Title and author at top.",
         "- Sections: Preface; Ch1..Ch22; Quick-Reference tables of principles and red flags; Final takeaways.",
-        "- Keep all graphics as ASCII (code fences) for diagrams/curves;",
-        "  preserve tables in Markdown.",
+        "- Keep all graphics as ASCII (code fences) for diagrams/curves; preserve tables in Markdown.",
         "- No external images or links.",
         "- Write concisely but completely. Use headers, lists, and code-fenced ASCII diagrams.",
+        "- IMPORTANT: Add a 'Study Flashcards' section at the end with 20-30 Q&A pairs in this exact format:",
+        "  **Q: What is [concept]?**",
+        "  A: [Clear, concise answer in 1-3 sentences]",
+        "  ",
+        "  (blank line between each Q&A pair)",
       ].join("\n");
 
-      const userPrompt = [
-        "Read the attached PDF pages and produce the full Markdown summary described above.",
-        "Output ONLY Markdown content (no JSON, no preambles).",
-      ].join("\n");
+      const userPrompt = "Read the attached PDF and produce the full Markdown summary described above. Output ONLY Markdown content (no JSON, no preambles).";
 
-      console.log("🧠 Asking the model to generate the Markdown summary from PDF images...");
-      
-      // Create message content with text and all images
-      const messageContent = [
-        { type: "text", text: userPrompt },
-        ...imageContents
-      ];
+      console.log("🧠 Asking GPT-5 to generate summary from PDF file...");
       
       const resp = await this.openai.chat.completions.create({
         model: API_MODEL,
@@ -891,7 +803,10 @@ export class SummaryForge {
           { role: "system", content: systemPrompt },
           {
             role: "user",
-            content: messageContent
+            content: [
+              { type: "file", file: { file_id: file.id } },
+              { type: "text", text: userPrompt }
+            ]
           }
         ],
         max_completion_tokens: this.maxTokens,
@@ -904,15 +819,12 @@ export class SummaryForge {
         console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
       }
 
-      // Clean up screenshots
+      // Clean up uploaded file
       try {
-        for (const screenshot of screenshots) {
-          await fsp.unlink(screenshot);
-        }
-        await fsp.rmdir(tempDir);
-        console.log(`🗑️  Cleaned up temporary screenshots`);
+        await this.openai.files.del(file.id);
+        console.log(`🗑️  Cleaned up uploaded file`);
       } catch (cleanupError) {
-        console.log(`⚠️  Warning: Could not clean up screenshots: ${cleanupError.message}`);
+        console.log(`⚠️  Warning: Could not delete uploaded file: ${cleanupError.message}`);
       }
 
       const md = resp.choices[0]?.message?.content ?? "";
@@ -920,15 +832,91 @@ export class SummaryForge {
         throw new Error("Model returned unexpectedly short content");
       }
 
+      console.log("✅ Successfully generated summary using GPT-5 with PDF file");
       return md;
       
-    } catch (error) {
-      // Provide more detailed error information
-      if (error.response) {
-        console.error(`❌ OpenAI API Error: ${error.response.status} - ${error.response.statusText}`);
-        console.error(`Details: ${JSON.stringify(error.response.data, null, 2)}`);
+    } catch (fileUploadError) {
+      // Log the file upload error
+      console.error(`⚠️  GPT-5 PDF file upload failed: ${fileUploadError.message}`);
+      if (fileUploadError.response) {
+        console.error(`   API Error: ${fileUploadError.response.status} - ${JSON.stringify(fileUploadError.response.data)}`);
       }
-      throw new Error(`Failed to generate summary: ${error.message}`);
+      
+      // Fallback to text extraction
+      console.log("🔄 Falling back to text extraction with pdf-parse v2...");
+      
+      try {
+        const pdfBuffer = await fsp.readFile(pdfPath);
+        const parser = new PDFParse({ data: pdfBuffer });
+        const result = await parser.getText();
+        await parser.destroy();
+        
+        const extractedText = result.text;
+        const pageCount = result.total;
+        
+        console.log(`📄 Extracted ${extractedText.length} characters from ${pageCount} pages`);
+        
+        if (!extractedText || extractedText.trim().length < 100) {
+          throw new Error("PDF appears to be empty or contains only images (scanned document)");
+        }
+        
+        // Truncate if needed
+        let textToSend = extractedText;
+        if (extractedText.length > this.maxChars) {
+          console.log(`⚠️  Text is ${extractedText.length} chars, truncating to ${this.maxChars} chars`);
+          textToSend = extractedText.slice(0, this.maxChars);
+        }
+        
+        const systemPrompt = [
+          "You are an expert technical writer. Produce a single, self-contained Markdown file.",
+          "Source: the provided book text. Do not hallucinate; pull claims from the text.",
+          "Goal: Let a reader skip the book but learn the principles.",
+          "Requirements:",
+          "- Title and author at top.",
+          "- Sections: Preface; Ch1..Ch22; Quick-Reference tables of principles and red flags; Final takeaways.",
+          "- Keep all graphics as ASCII (code fences) for diagrams/curves; preserve tables in Markdown.",
+          "- No external images or links.",
+          "- Write concisely but completely. Use headers, lists, and code-fenced ASCII diagrams.",
+          "- IMPORTANT: Add a 'Study Flashcards' section at the end with 20-30 Q&A pairs in this exact format:",
+          "  **Q: What is [concept]?**",
+          "  A: [Clear, concise answer in 1-3 sentences]",
+          "  ",
+          "  (blank line between each Q&A pair)",
+        ].join("\n");
+
+        const userPrompt = `Read the following book text and produce the full Markdown summary described above. Output ONLY Markdown content (no JSON, no preambles).\n\n${textToSend}`;
+
+        console.log("🧠 Asking GPT-5 to generate summary from extracted text...");
+        
+        const resp = await this.openai.chat.completions.create({
+          model: API_MODEL,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          max_completion_tokens: this.maxTokens,
+        });
+
+        // Track OpenAI costs
+        if (resp.usage) {
+          const cost = this.trackOpenAICost(resp.usage);
+          console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
+          console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+        }
+
+        const md = resp.choices[0]?.message?.content ?? "";
+        if (!md || md.trim().length < 200) {
+          throw new Error("Model returned unexpectedly short content");
+        }
+
+        console.log("✅ Successfully generated summary using text extraction fallback");
+        console.log("⚠️  Note: Images/diagrams from PDF were not included (text-only extraction)");
+        return md;
+        
+      } catch (textExtractionError) {
+        console.error(`❌ Text extraction fallback also failed: ${textExtractionError.message}`);
+        throw new Error(`Failed to generate summary: ${textExtractionError.message}`);
+      }
     }
   }
 
