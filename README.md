@@ -201,7 +201,8 @@ const forge = new SummaryForge({
   enableProxy: false,                // Enable proxy
   proxyUrl: 'http://proxy.com',     // Proxy URL
   proxyUsername: 'user',             // Proxy username
-  proxyPassword: 'pass'              // Proxy password
+  proxyPassword: 'pass',             // Proxy password
+  proxyPoolSize: 100                 // Number of proxies in pool (default: 100)
 });
 
 const result = await forge.processFile('./book.epub');
@@ -254,7 +255,8 @@ new SummaryForge({
   enableProxy: boolean,      // Optional: Enable proxy (default: false)
   proxyUrl: string,          // Optional: Proxy URL
   proxyUsername: string,     // Optional: Proxy username
-  proxyPassword: string      // Optional: Proxy password
+  proxyPassword: string,     // Optional: Proxy password
+  proxyPoolSize: number      // Optional: Number of proxies in pool (default: 100)
 })
 ```
 
@@ -309,6 +311,7 @@ ENABLE_PROXY=false                     # Enable proxy for browser requests
 PROXY_URL=http://proxy.example.com    # Proxy URL (if enabled)
 PROXY_USERNAME=username                # Proxy username (if enabled)
 PROXY_PASSWORD=password                # Proxy password (if enabled)
+PROXY_POOL_SIZE=100                    # Number of proxies in your pool (default: 100)
 ```
 
 Or set them in your shell:
@@ -363,7 +366,17 @@ For Anna's Archive downloads, you need a **static/direct proxy** (not rotating) 
 3. Use the format: `http://host:port` (e.g., `http://45.95.96.132:8080`)
 4. Username format: `dmdgluqz-US-{session_id}` (session ID added automatically)
 
-The tool automatically generates a unique session ID for each download to get a fresh IP, while maintaining that IP throughout the 5-10 minute download process.
+The tool automatically generates a unique session ID (1 to `PROXY_POOL_SIZE`) for each download to get a fresh IP, while maintaining that IP throughout the 5-10 minute download process.
+
+**Proxy Pool Size Configuration:**
+
+Set `PROXY_POOL_SIZE` to match your Webshare plan:
+- Free tier: 10 proxies → `PROXY_POOL_SIZE=10`
+- Starter plan: 25 proxies → `PROXY_POOL_SIZE=25`
+- Professional plan: 100 proxies → `PROXY_POOL_SIZE=100`
+- Enterprise plan: 250+ proxies → `PROXY_POOL_SIZE=250`
+
+The tool will randomly select a session ID from 1 to your pool size, distributing load across all available proxies.
 
 **Note:** Rotating proxies (`p.webshare.io`) don't support sticky sessions. Use individual static proxy IPs from your proxy list instead.
 

@@ -67,6 +67,7 @@ export async function loadConfig(options = {}) {
       proxyUrl: config.proxyUrl || process.env.PROXY_URL,
       proxyUsername: config.proxyUsername || process.env.PROXY_USERNAME,
       proxyPassword: config.proxyPassword || process.env.PROXY_PASSWORD,
+      proxyPoolSize: config.proxyPoolSize ?? (process.env.PROXY_POOL_SIZE ? parseInt(process.env.PROXY_POOL_SIZE, 10) : 100),
     };
   } catch (error) {
     if (error.code === 'ENOENT') {
@@ -93,6 +94,7 @@ export async function loadConfig(options = {}) {
         proxyUrl: process.env.PROXY_URL,
         proxyUsername: process.env.PROXY_USERNAME,
         proxyPassword: process.env.PROXY_PASSWORD,
+        proxyPoolSize: process.env.PROXY_POOL_SIZE ? parseInt(process.env.PROXY_POOL_SIZE, 10) : 100,
       };
     }
     // Invalid JSON or other error

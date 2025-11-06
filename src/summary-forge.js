@@ -41,6 +41,7 @@ export class SummaryForge {
     this.proxyUrl = config.proxyUrl;
     this.proxyUsername = config.proxyUsername;
     this.proxyPassword = config.proxyPassword;
+    this.proxyPoolSize = config.proxyPoolSize ?? 100; // Default to 100 if not specified
     
     if (!this.openaiApiKey) {
       throw new Error("OpenAI API key is required");
@@ -629,8 +630,8 @@ export class SummaryForge {
     console.log(`🔍 Search URL: ${searchUrl}`);
     
     // Simple proxy setup like test-just-proxy.js
-    // Session ID must be between 1-100 for Webshare (100 US-based proxies)
-    const sessionId = Math.floor(Math.random() * 100) + 1;
+    // Session ID must be between 1-proxyPoolSize for Webshare sticky sessions
+    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
     const proxyUrlObj = new URL(this.proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
@@ -639,7 +640,7 @@ export class SummaryForge {
     
     console.log(`🔒 Proxy session: ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
     
-    console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of 100)`);
+    console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of ${this.proxyPoolSize})`);
     
     // Use a unique profile per session to avoid conflicts between runs
     const userDataDir = `./puppeteer_ddg_profile_${sessionId}_${Date.now()}`;
@@ -872,12 +873,9 @@ export class SummaryForge {
           if (waitTime > 0) {
             console.log(`⏰ Server has ${waitTime} second countdown, waiting...`);
             // Wait for the countdown plus a small buffer
-            await new Promise(resolve => setTimeout(resolve, (waitTime + 2) * 1000));
-            
-            // Reload the page to get the actual download links
-            console.log(`🔄 Reloading page after countdown...`);
-            await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // The page will update dynamically via JavaScript when countdown expires
+            await new Promise(resolve => setTimeout(resolve, (waitTime + 3) * 1000));
+            console.log(`✅ Countdown complete, download links should now be available`);
           }
           
           // Now get the download URL using the existing method
