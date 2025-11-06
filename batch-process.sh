@@ -5,9 +5,18 @@
 
 set -e  # Exit on error
 
+# Setup logging
+LOG_FILE="/tmp/summary-forge-batch-$(date +%Y%m%d-%H%M%S).log"
+echo "📝 Logging to: $LOG_FILE"
+
+# Function to log to both stdout and file
+log() {
+  echo "$@" | tee -a "$LOG_FILE"
+}
+
 # Check if titles.txt exists
 if [ ! -f "titles.txt" ]; then
-  echo "❌ Error: titles.txt not found"
+  log "❌ Error: titles.txt not found"
   exit 1
 fi
 
@@ -23,8 +32,9 @@ total_elevenlabs=0
 total_rainforest=0
 total_cost=0
 
-echo "📚 Processing $total books from titles.txt"
-echo ""
+log "📚 Processing $total books from titles.txt"
+log "📝 Log file: $LOG_FILE"
+log ""
 
 # Read each line and process
 while IFS= read -r title || [ -n "$title" ]; do
@@ -34,20 +44,19 @@ while IFS= read -r title || [ -n "$title" ]; do
   fi
   
   current=$((current + 1))
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📖 Processing book $current/$total: $title"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log "📖 Processing book $current/$total: $title"
+  log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  log ""
   
   # Run summary command with --force flag and capture output
-  output=$(summary title --force "$title" 2>&1)
-  exit_code=$?
-  
-  echo "$output"
+  # Use tee to write to both stdout and log file
+  output=$(summary title --force "$title" 2>&1 | tee -a "$LOG_FILE")
+  exit_code=${PIPESTATUS[0]}
   
   if [ $exit_code -eq 0 ]; then
-    echo ""
-    echo "✅ Successfully processed: $title"
+    log ""
+    log "✅ Successfully processed: $title"
     success=$((success + 1))
     
     # Extract costs from output
@@ -60,18 +69,19 @@ while IFS= read -r title || [ -n "$title" ]; do
     total_elevenlabs=$(echo "$total_elevenlabs + $elevenlabs" | bc)
     total_rainforest=$(echo "$total_rainforest + $rainforest" | bc)
     
-    echo ""
+    log ""
   else
-    echo ""
-    echo "⚠️  Failed to process: $title"
-    echo "   Continuing with next book..."
+    log ""
+    log "⚠️  Failed to process: $title"
+    log "   Exit code: $exit_code"
+    log "   Continuing with next book..."
     failed=$((failed + 1))
-    echo ""
+    log ""
   fi
   
   # Add a delay between books to avoid rate limiting
   if [ $current -lt $total ]; then
-    echo "⏳ Waiting 30 seconds before next book..."
+    log "⏳ Waiting 30 seconds before next book..."
     sleep 30
   fi
 done < titles.txt
@@ -79,21 +89,23 @@ done < titles.txt
 # Calculate total cost
 total_cost=$(echo "$total_openai + $total_elevenlabs + $total_rainforest" | bc)
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✨ Batch processing complete!"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-echo "📊 Summary:"
-echo "   Total books:        $total"
-echo "   Successful:         $success"
-echo "   Failed:             $failed"
-echo ""
-echo "💰 Total Costs:"
-echo "   OpenAI (GPT-5):     \$$total_openai"
-echo "   ElevenLabs (TTS):   \$$total_elevenlabs"
-echo "   Rainforest API:     \$$total_rainforest"
-echo "   ─────────────────────────────"
-echo "   TOTAL:              \$$total_cost"
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log ""
+log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log "✨ Batch processing complete!"
+log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+log ""
+log "📊 Summary:"
+log "   Total books:        $total"
+log "   Successful:         $success"
+log "   Failed:             $failed"
+log ""
+log "💰 Total Costs:"
+log "   OpenAI (GPT-5):     \$$total_openai"
+log "   ElevenLabs (TTS):   \$$total_elevenlabs"
+log "   Rainforest API:     \$$total_rainforest"
+log "   ─────────────────────────────"
+log "   TOTAL:              \$$total_cost"
+log ""
+log "📝 Full log saved to: $LOG_FILE"
+log ""
+log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
