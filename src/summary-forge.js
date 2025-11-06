@@ -645,7 +645,7 @@ export class SummaryForge {
     const userDataDir = './puppeteer_ddg_profile';
     
     const browser = await puppeteer.launch({
-      headless: false,
+      headless: this.headless,
       args: [
         `--proxy-server=${proxyHost}:${proxyPort}`,
         '--no-sandbox',
@@ -823,8 +823,19 @@ export class SummaryForge {
             continue;
           }
           
-          // Download the file using fetch
-          const response = await fetch(downloadUrl);
+          // Download the file using fetch (with proxy if enabled)
+          let fetchOptions = {};
+          
+          if (this.enableProxy) {
+            const { HttpsProxyAgent } = await import('https-proxy-agent');
+            const proxyAgent = new HttpsProxyAgent(`http://${proxyUsername}:${proxyPassword}@${proxyHost}:${proxyPort}`, {
+              rejectUnauthorized: false  // Ignore invalid SSL certificates
+            });
+            fetchOptions.agent = proxyAgent;
+            console.log(`📥 Downloading via proxy...`);
+          }
+          
+          const response = await fetch(downloadUrl, fetchOptions);
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
