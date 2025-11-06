@@ -478,10 +478,13 @@ export class SummaryForge {
   /**
    * Get Anna's Archive search URL for ASIN
    * Searches for epub and pdf formats, prioritizing epub by listing it first
+   * Filters for better quality sources (libgen, scihub, etc.)
    */
   getAnnasArchiveUrl(asin) {
     // Note: ext=epub comes before ext=pdf to prioritize EPUB results
-    return `https://annas-archive.org/search?index=&page=1&sort=&ext=epub&ext=pdf&display=list_compact&q=${asin}`;
+    // content=book_nonfiction helps filter for proper books vs scanned documents
+    // We'll also add sorting by file size (larger usually means better quality for technical books)
+    return `https://annas-archive.org/search?index=&page=1&sort=&content=book_nonfiction&ext=epub&ext=pdf&display=list_compact&q=${asin}`;
   }
 
   /**
@@ -557,9 +560,16 @@ export class SummaryForge {
       
       // Get all results with their format information
       // Look for the actual file extension in the result, not just mentions of the format
+      // Also check for quality indicators (file size, source)
       const results = await page.$$eval('.js-aarecord-list-outer', (containers) => {
         return containers.map((container, index) => {
           const link = container.querySelector('a[href^="/md5/"]');
+          
+          // Get the title from the link text, not the entire container
+          const titleElement = link?.querySelector('h3') || link;
+          const title = titleElement ? titleElement.textContent.trim() : '';
+          
+          // Get metadata from the container (format, size, etc.)
           const text = container.textContent;
           
           // Look for actual file extensions in the text
@@ -567,57 +577,88 @@ export class SummaryForge {
           const hasEpubExtension = /\.epub\b/i.test(text) || /\bepub\s*,/i.test(text);
           const hasPdfExtension = /\.pdf\b/i.test(text) || /\bpdf\s*,/i.test(text);
           
+          // Extract file size to help filter quality (larger is often better for technical books)
+          const sizeMatch = text.match(/(\d+(?:\.\d+)?)\s*(KB|MB|GB)/i);
+          let sizeInMB = 0;
+          if (sizeMatch) {
+            const size = parseFloat(sizeMatch[1]);
+            const unit = sizeMatch[2].toUpperCase();
+            if (unit === 'KB') sizeInMB = size / 1024;
+            else if (unit === 'MB') sizeInMB = size;
+            else if (unit === 'GB') sizeInMB = size * 1024;
+          }
+          
+          // Check for quality indicators
+          const hasLibgen = /libgen/i.test(text);
+          const hasScihub = /scihub/i.test(text);
+          const hasZlib = /z-lib|zlibrary/i.test(text);
+          const isScanned = /scan|camera|djvu/i.test(text);
+          
+          // Quality score (higher is better)
+          let qualityScore = 0;
+          if (hasLibgen) qualityScore += 3;
+          if (hasScihub) qualityScore += 2;
+          if (hasZlib) qualityScore += 2;
+          if (hasEpubExtension) qualityScore += 5; // EPUB is usually better quality
+          if (sizeInMB > 5) qualityScore += 2; // Larger files often better quality
+          if (sizeInMB > 20) qualityScore += 1; // But not too large (might be scanned)
+          if (isScanned) qualityScore -= 10; // Heavily penalize scanned documents
+          
           return {
             href: link ? link.getAttribute('href') : null,
             isEpub: hasEpubExtension,
             isPdf: hasPdfExtension,
-            text: text.trim().substring(0, 150),
+            title: title.substring(0, 100), // Use actual title, not full text
+            sizeInMB,
+            qualityScore,
+            isScanned,
             index
           };
-        }).filter(r => r.href && (r.isEpub || r.isPdf));
+        }).filter(r => r.href && (r.isEpub || r.isPdf) && !r.isScanned);
       });
       
       if (results.length === 0) {
         throw new Error('No epub or pdf results found on Anna\'s Archive');
       }
       
+      // Sort by quality score (highest first)
+      results.sort((a, b) => b.qualityScore - a.qualityScore);
+      
       // Separate EPUB and PDF results
       const epubResults = results.filter(r => r.isEpub && !r.isPdf);
       const pdfResults = results.filter(r => r.isPdf && !r.isEpub);
       const bothResults = results.filter(r => r.isEpub && r.isPdf);
       
-      console.log(`📖 Found ${results.length} total results:`);
+      console.log(`📖 Found ${results.length} total results (filtered, excluding scanned):`);
       console.log(`   - ${epubResults.length} EPUB-only results`);
       console.log(`   - ${pdfResults.length} PDF-only results`);
       console.log(`   - ${bothResults.length} results with both formats`);
       
-      // Debug: Show first few results
+      // Debug: Show first few results with quality scores
       if (results.length > 0) {
-        console.log(`\n📋 First 3 results (in page order):`);
+        console.log(`\n📋 Top 3 results (sorted by quality):`);
         results.slice(0, 3).forEach(r => {
           const formats = [];
           if (r.isEpub) formats.push('EPUB');
           if (r.isPdf) formats.push('PDF');
-          console.log(`   ${r.index + 1}. [${formats.join('/')}] ${r.text.substring(0, 80)}...`);
+          console.log(`   ${r.index + 1}. [${formats.join('/')}] Score: ${r.qualityScore}, Size: ${r.sizeInMB.toFixed(1)}MB`);
+          console.log(`      "${r.title}"`);
         });
       }
       
-      // Prioritize: EPUB-only > both formats > PDF-only
-      let preferredResult;
+      // Select the highest quality result (already sorted)
+      let preferredResult = results[0];
       let format;
       
-      if (epubResults.length > 0) {
-        preferredResult = epubResults[0];
+      if (preferredResult.isEpub && !preferredResult.isPdf) {
         format = 'EPUB';
-        console.log(`✅ Selected EPUB-only result (index ${preferredResult.index})`);
-      } else if (bothResults.length > 0) {
-        preferredResult = bothResults[0];
+        console.log(`✅ Selected EPUB result (quality score: ${preferredResult.qualityScore})`);
+      } else if (preferredResult.isEpub && preferredResult.isPdf) {
         format = 'EPUB/PDF';
-        console.log(`✅ Selected result with both formats (index ${preferredResult.index}), will prefer EPUB download`);
+        console.log(`✅ Selected result with both formats (quality score: ${preferredResult.qualityScore}), will prefer EPUB download`);
       } else {
-        preferredResult = pdfResults[0];
         format = 'PDF';
-        console.log(`✅ Selected PDF-only result (index ${preferredResult.index}) - no EPUB available`);
+        console.log(`✅ Selected PDF result (quality score: ${preferredResult.qualityScore})`);
       }
       
       const bookPageUrl = `https://annas-archive.org${preferredResult.href}`;
@@ -768,79 +809,185 @@ export class SummaryForge {
   }
 
   /**
-   * Generate summary using GPT-5 with direct PDF upload
+   * Convert PDF pages to images using Puppeteer
+   */
+  async convertPdfToImages(pdfPath, outputDir) {
+    console.log("📸 Converting PDF pages to images...");
+    
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    try {
+      const page = await browser.newPage();
+      
+      // Load the PDF in the browser
+      const pdfUrl = `file://${path.resolve(pdfPath)}`;
+      await page.goto(pdfUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+      
+      // Wait for PDF to render
+      await page.waitForTimeout(2000);
+      
+      // Get number of pages by checking the PDF viewer
+      const pageCount = await page.evaluate(() => {
+        // Try to get page count from PDF.js viewer if available
+        if (window.PDFViewerApplication?.pdfDocument) {
+          return window.PDFViewerApplication.pdfDocument.numPages;
+        }
+        return 1; // Fallback to single page
+      });
+      
+      console.log(`📄 PDF has ${pageCount} page(s)`);
+      
+      const screenshots = [];
+      
+      // Take screenshot of each page
+      for (let i = 1; i <= pageCount; i++) {
+        console.log(`📸 Capturing page ${i}/${pageCount}...`);
+        
+        // Navigate to specific page if multi-page
+        if (pageCount > 1) {
+          await page.evaluate((pageNum) => {
+            if (window.PDFViewerApplication) {
+              window.PDFViewerApplication.page = pageNum;
+            }
+          }, i);
+          await page.waitForTimeout(1000);
+        }
+        
+        const screenshotPath = path.join(outputDir, `page_${i}.png`);
+        await page.screenshot({
+          path: screenshotPath,
+          fullPage: true,
+          type: 'png'
+        });
+        
+        screenshots.push(screenshotPath);
+        console.log(`✅ Saved: ${screenshotPath}`);
+      }
+      
+      await browser.close();
+      return screenshots;
+      
+    } catch (error) {
+      await browser.close();
+      throw new Error(`Failed to convert PDF to images: ${error.message}`);
+    }
+  }
+
+  /**
+   * Generate summary using GPT-5 vision with PDF screenshots
    */
   async generateSummary(pdfPath) {
-    console.log("📖 Uploading PDF to OpenAI...");
+    console.log("📖 Processing PDF for OpenAI...");
     
-    // Read PDF file
-    const pdfBuffer = await fsp.readFile(pdfPath);
-    const pdfSizeKB = (pdfBuffer.length / 1024).toFixed(2);
-    const pdfSizeMB = (pdfBuffer.length / 1024 / 1024).toFixed(2);
+    // Get file stats
+    const stats = await fsp.stat(pdfPath);
+    const pdfSizeKB = (stats.size / 1024).toFixed(2);
+    const pdfSizeMB = (stats.size / 1024 / 1024).toFixed(2);
     console.log(`📊 PDF size: ${pdfSizeMB} MB (${pdfSizeKB} KB)`);
     
-    // Check file size (OpenAI has limits, typically 512MB but let's warn at 100MB)
-    if (pdfBuffer.length > 100 * 1024 * 1024) {
+    // Check file size
+    if (stats.size > 100 * 1024 * 1024) {
       console.log(`⚠️  Warning: Large PDF file (${pdfSizeMB} MB). This may take longer and cost more.`);
     }
     
-    // Convert PDF to base64 for upload
-    const pdfBase64 = pdfBuffer.toString('base64');
-    
-    const systemPrompt = [
-      "You are an expert technical writer. Produce a single, self-contained Markdown file.",
-      "Source: the attached PDF. Do not hallucinate; pull claims from the PDF.",
-      "Goal: Let a reader skip the book but learn the principles.",
-      "Requirements:",
-      "- Title and author at top.",
-      "- Sections: Preface; Ch1..Ch22; Quick-Reference tables of principles and red flags; Final takeaways.",
-      "- Keep all graphics as ASCII (code fences) for diagrams/curves;",
-      "  preserve tables in Markdown.",
-      "- No external images or links.",
-      "- Write concisely but completely. Use headers, lists, and code-fenced ASCII diagrams.",
-    ].join("\n");
-
-    const userPrompt = [
-      "Read the attached PDF and produce the full Markdown summary described above.",
-      "Output ONLY Markdown content (no JSON, no preambles).",
-    ].join("\n");
-
-    console.log("🧠 Asking the model to generate the Markdown summary from PDF...");
-    
-    const resp = await this.openai.chat.completions.create({
-      model: API_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:application/pdf;base64,${pdfBase64}`,
-                detail: "high"
-              }
+    try {
+      // Create temp directory for screenshots
+      const tempDir = path.join(path.dirname(pdfPath), '.pdf_screenshots');
+      await fsp.mkdir(tempDir, { recursive: true });
+      
+      // Convert PDF pages to images
+      const screenshots = await this.convertPdfToImages(pdfPath, tempDir);
+      console.log(`✅ Converted ${screenshots.length} page(s) to images`);
+      
+      // Read all screenshots as base64
+      const imageContents = await Promise.all(
+        screenshots.map(async (screenshotPath) => {
+          const imageBuffer = await fsp.readFile(screenshotPath);
+          const base64Image = imageBuffer.toString('base64');
+          return {
+            type: "image_url",
+            image_url: {
+              url: `data:image/png;base64,${base64Image}`,
+              detail: "high"
             }
-          ]
-        },
-      ],
-      max_completion_tokens: this.maxTokens,
-    });
+          };
+        })
+      );
+      
+      const systemPrompt = [
+        "You are an expert technical writer. Produce a single, self-contained Markdown file.",
+        "Source: the attached PDF pages (as images). Do not hallucinate; pull claims from the PDF.",
+        "Goal: Let a reader skip the book but learn the principles.",
+        "Requirements:",
+        "- Title and author at top.",
+        "- Sections: Preface; Ch1..Ch22; Quick-Reference tables of principles and red flags; Final takeaways.",
+        "- Keep all graphics as ASCII (code fences) for diagrams/curves;",
+        "  preserve tables in Markdown.",
+        "- No external images or links.",
+        "- Write concisely but completely. Use headers, lists, and code-fenced ASCII diagrams.",
+      ].join("\n");
 
-    // Track OpenAI costs
-    if (resp.usage) {
-      const cost = this.trackOpenAICost(resp.usage);
-      console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
-      console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+      const userPrompt = [
+        "Read the attached PDF pages and produce the full Markdown summary described above.",
+        "Output ONLY Markdown content (no JSON, no preambles).",
+      ].join("\n");
+
+      console.log("🧠 Asking the model to generate the Markdown summary from PDF images...");
+      
+      // Create message content with text and all images
+      const messageContent = [
+        { type: "text", text: userPrompt },
+        ...imageContents
+      ];
+      
+      const resp = await this.openai.chat.completions.create({
+        model: API_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: messageContent
+          }
+        ],
+        max_completion_tokens: this.maxTokens,
+      });
+
+      // Track OpenAI costs
+      if (resp.usage) {
+        const cost = this.trackOpenAICost(resp.usage);
+        console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
+        console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+      }
+
+      // Clean up screenshots
+      try {
+        for (const screenshot of screenshots) {
+          await fsp.unlink(screenshot);
+        }
+        await fsp.rmdir(tempDir);
+        console.log(`🗑️  Cleaned up temporary screenshots`);
+      } catch (cleanupError) {
+        console.log(`⚠️  Warning: Could not clean up screenshots: ${cleanupError.message}`);
+      }
+
+      const md = resp.choices[0]?.message?.content ?? "";
+      if (!md || md.trim().length < 200) {
+        throw new Error("Model returned unexpectedly short content");
+      }
+
+      return md;
+      
+    } catch (error) {
+      // Provide more detailed error information
+      if (error.response) {
+        console.error(`❌ OpenAI API Error: ${error.response.status} - ${error.response.statusText}`);
+        console.error(`Details: ${JSON.stringify(error.response.data, null, 2)}`);
+      }
+      throw new Error(`Failed to generate summary: ${error.message}`);
     }
-
-    const md = resp.choices[0]?.message?.content ?? "";
-    if (!md || md.trim().length < 200) {
-      throw new Error("Model returned unexpectedly short content");
-    }
-
-    return md;
   }
 
   /**
