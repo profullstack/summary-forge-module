@@ -1,0 +1,7 @@
+accept "summary url <url>" to just fetch the page with puppeteer, santize the html so you just get the main content and then continue generating the summary files and shit like usual. the only difference is we're reading a web page intead of using rainforest and anna's arhive for downloading source .pdf. you can save the web page as a .pdf with puppeteer and use that instead ofa  downloaded ebook.pdf file for example. Everything else should be the same. use the web-page title as the directory name in ./uploads if you can't find a title tag generate one using openai and use that. when you upload the web page .pdf file to openai you'll probably need different prompting saying to summarize the web page content intead of ebook. Since ebook is pure content , web page will have nav and footers and ads and shit you'll want to ignore.
+
+
+---
+
+
+

@@ -9,6 +9,7 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 - 📚 **Multiple Input Formats**: Supports both PDF and EPUB files
 - 🤖 **AI-Powered Summaries**: Uses GPT-5 with direct PDF upload for better quality
 - 📊 **Vision API**: Preserves formatting, tables, diagrams, and images from PDFs
+- 🧩 **Intelligent Chunking**: Automatically processes large PDFs (500+ pages) without truncation
 - 📦 **Multiple Output Formats**: Creates Markdown, PDF, EPUB, plain text, and MP3 audio summaries
 - 🃏 **Printable Flashcards**: Generates double-sided flashcard PDFs for studying
 - 🎙️ **Natural Audio Narration**: AI-generated conversational audio script for better listening
@@ -277,10 +278,15 @@ new SummaryForge({
 - `convertEpubToPdf(epubPath)` - Convert EPUB to PDF
   - Returns: String path to PDF
 
-- `generateSummary(pdfPath)` - Generate AI summary from PDF using vision API
+- `generateSummary(pdfPath)` - Generate AI summary from PDF using vision API with intelligent chunking
   - Parameters: `pdfPath` (string) - Path to PDF file
   - Returns: String markdown summary
-  - Note: Uses OpenAI's vision API to directly analyze PDF, preserving formatting and images
+  - Features:
+    - **Direct PDF Upload**: Tries OpenAI's vision API first for best quality
+    - **Intelligent Chunking**: Automatically chunks large PDFs (>400k chars) for complete processing
+    - **Quality Preservation**: Each chunk is summarized separately, then synthesized into a cohesive final summary
+    - **No Truncation**: Processes entire books (500+ pages) without losing content
+    - **Adaptive**: Small PDFs processed in one request, large PDFs automatically chunked
 
 ## Configuration
 
@@ -433,20 +439,55 @@ summary file ~/Downloads/book.epub
 ## How It Works
 
 1. **Input Processing**: Accepts PDF or EPUB files (EPUB is converted to PDF)
-2. **PDF Upload**: Uploads PDF directly to OpenAI's vision API (no text extraction needed)
-3. **AI Summarization**: GPT-5 analyzes the PDF with full formatting, tables, and diagrams
+2. **Smart Processing Strategy**:
+   - **Small PDFs (<400k chars)**: Direct upload to OpenAI's vision API
+   - **Large PDFs (>400k chars)**: Intelligent chunking with synthesis
+3. **AI Summarization**: GPT-5 analyzes content with full formatting, tables, and diagrams
 4. **Format Conversion**: Uses Pandoc to convert the Markdown summary to PDF and EPUB
 5. **Audio Generation**: Optional TTS conversion using ElevenLabs
 6. **Bundling**: Creates a compressed archive with all generated files
 
+### Intelligent Chunking for Large PDFs
+
+For PDFs exceeding 400,000 characters (typically 500+ pages), the tool automatically uses an intelligent chunking strategy:
+
+**How it works:**
+1. **Analysis**: Calculates optimal chunk size based on PDF statistics
+2. **Page-Based Chunking**: Splits PDF into logical chunks (typically 50-150k chars each)
+3. **Parallel Processing**: Each chunk is summarized independently by GPT-5
+4. **Intelligent Synthesis**: All chunk summaries are combined into a cohesive final summary
+5. **Quality Preservation**: Maintains narrative flow and eliminates redundancy
+
+**Benefits:**
+- ✅ **Complete Coverage**: Processes entire books without truncation
+- ✅ **High Quality**: Each section gets full AI attention
+- ✅ **Seamless Output**: Final summary reads as a unified document
+- ✅ **Cost Efficient**: Optimizes token usage across multiple API calls
+- ✅ **Automatic**: No configuration needed - works transparently
+
+**Example Output:**
+```
+📊 PDF Stats: 523 pages, 1,245,678 chars, ~311,420 tokens
+📚 PDF is large - using intelligent chunking strategy
+   This will process the ENTIRE 523-page PDF without truncation
+📐 Using chunk size: 120,000 chars
+📦 Created 11 chunks for processing
+   Chunk 1: Pages 1-48 (119,234 chars)
+   Chunk 2: Pages 49-95 (118,901 chars)
+   ...
+✅ All 11 chunks processed successfully
+🔄 Synthesizing chunk summaries into final comprehensive summary...
+✅ Final summary synthesized: 45,678 characters
+```
+
 ### Why Direct PDF Upload?
 
-The tool now uses OpenAI's vision API to upload PDFs directly instead of extracting text. This provides:
+The tool prioritizes OpenAI's vision API for direct PDF upload when possible:
 
 - ✅ **Better Quality**: Preserves document formatting, tables, and diagrams
 - ✅ **More Accurate**: AI can see the actual PDF layout and structure
-- ✅ **Simpler Code**: No need for pdf-parse library
 - ✅ **Better for Technical Books**: Code examples and diagrams are preserved
+- ✅ **Fallback Strategy**: Automatically switches to intelligent chunking for large files
 
 ## Testing
 
@@ -544,12 +585,13 @@ The tool will automatically detect and solve CAPTCHAs during downloads, making t
 
 ## Limitations
 
-- Maximum PDF file size: ~100MB (OpenAI vision API limit is 512MB)
+- Maximum PDF file size: No practical limit (intelligent chunking handles any size)
 - GPT-5 uses default temperature of 1 (not configurable)
 - Requires external tools: Calibre, Pandoc, XeLaTeX
 - CAPTCHA solving requires [2captcha.com](https://2captcha.com/?from=9630996) API key (optional)
-- Large PDFs may incur higher API costs due to vision processing
+- Very large PDFs (1000+ pages) may incur higher API costs due to multiple chunk processing
 - Anna's Archive may block IPs without proxy configuration
+- Chunked processing uses text extraction (images/diagrams described in text only)
 
 ## Roadmap
 

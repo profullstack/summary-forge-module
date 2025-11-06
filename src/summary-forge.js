@@ -16,6 +16,7 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 puppeteer.use(StealthPlugin());
 import { PDFParse } from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
+import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize } from "./utils/pdf-chunker.js";
 
 const API_MODEL = "gpt-5";
 
@@ -1004,7 +1005,121 @@ export class SummaryForge {
   }
 
   /**
-   * Generate summary using GPT-5 with PDF file upload (with fallback to text extraction)
+   * Process a single chunk and generate a partial summary
+   * @private
+   */
+  async processSingleChunk(chunkText, chunkIndex, totalChunks, startPage, endPage) {
+    const systemPrompt = [
+      "You are an expert technical writer creating a detailed summary of a book section.",
+      `This is chunk ${chunkIndex + 1} of ${totalChunks} (pages ${startPage}-${endPage}).`,
+      "Extract and summarize ALL key information from this section:",
+      "- Main concepts and principles",
+      "- Important examples and case studies",
+      "- Key takeaways and actionable insights",
+      "- Technical details and methodologies",
+      "- Any diagrams, tables, or visual content (describe in text)",
+      "",
+      "Format your response as structured Markdown with:",
+      "- Clear section headers",
+      "- Bullet points for key concepts",
+      "- Numbered lists for sequential information",
+      "- Code blocks for technical content",
+      "",
+      "Be comprehensive - this will be combined with other chunks to form the complete summary.",
+      "Do NOT add introductory or concluding remarks about this being a partial summary."
+    ].join("\n");
+
+    const userPrompt = `Summarize this section of the book (pages ${startPage}-${endPage}):\n\n${chunkText}`;
+
+    console.log(`   🧠 Processing chunk ${chunkIndex + 1}/${totalChunks} (pages ${startPage}-${endPage})...`);
+
+    const resp = await this.openai.chat.completions.create({
+      model: API_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      max_completion_tokens: this.maxTokens,
+    });
+
+    if (resp.usage) {
+      const cost = this.trackOpenAICost(resp.usage);
+      console.log(`   💰 Chunk ${chunkIndex + 1} cost: $${cost.toFixed(4)} (${resp.usage.prompt_tokens} in, ${resp.usage.completion_tokens} out)`);
+    }
+
+    const summary = resp.choices[0]?.message?.content ?? "";
+    if (!summary || summary.trim().length < 50) {
+      throw new Error(`Chunk ${chunkIndex + 1} returned unexpectedly short content`);
+    }
+
+    console.log(`   ✅ Chunk ${chunkIndex + 1} processed: ${summary.length} chars`);
+    return summary;
+  }
+
+  /**
+   * Synthesize multiple chunk summaries into a cohesive final summary
+   * @private
+   */
+  async synthesizeChunkSummaries(chunkSummaries, bookTitle = "the book") {
+    console.log("🔄 Synthesizing chunk summaries into final comprehensive summary...");
+
+    const combinedText = chunkSummaries
+      .map((summary, idx) => `## Section ${idx + 1}\n\n${summary}`)
+      .join("\n\n---\n\n");
+
+    const systemPrompt = [
+      "You are an expert technical writer. You will receive summaries of different sections of a book.",
+      "Your task is to synthesize these into ONE cohesive, comprehensive Markdown summary.",
+      "",
+      "Requirements:",
+      "- Title and author at top (extract from content)",
+      "- Organize content logically by chapters/topics (not by the chunk sections provided)",
+      "- Merge overlapping information intelligently",
+      "- Maintain ALL key concepts, principles, and details from all sections",
+      "- Create a unified narrative flow",
+      "- Include: Preface, all Chapters, Quick-Reference tables, Final takeaways",
+      "- Use headers, lists, and code-fenced ASCII diagrams",
+      "- No external images or links",
+      "- IMPORTANT: Add a 'Study Flashcards' section at the end with 20-30 Q&A pairs:",
+      "  **Q: What is [concept]?**",
+      "  A: [Clear, concise answer in 1-3 sentences]",
+      "  ",
+      "  (blank line between each Q&A pair)",
+      "",
+      "Output ONLY the final Markdown summary (no meta-commentary)."
+    ].join("\n");
+
+    const userPrompt = [
+      `Synthesize these section summaries of "${bookTitle}" into one comprehensive, well-organized summary:`,
+      "",
+      combinedText
+    ].join("\n");
+
+    const resp = await this.openai.chat.completions.create({
+      model: API_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      max_completion_tokens: this.maxTokens,
+    });
+
+    if (resp.usage) {
+      const cost = this.trackOpenAICost(resp.usage);
+      console.log(`💰 Synthesis cost: $${cost.toFixed(4)} (${resp.usage.prompt_tokens} in, ${resp.usage.completion_tokens} out)`);
+    }
+
+    const finalSummary = resp.choices[0]?.message?.content ?? "";
+    if (!finalSummary || finalSummary.trim().length < 200) {
+      throw new Error("Synthesis returned unexpectedly short content");
+    }
+
+    console.log(`✅ Final summary synthesized: ${finalSummary.length} chars`);
+    return finalSummary;
+  }
+
+  /**
+   * Generate summary using GPT-5 with PDF file upload (with fallback to chunked text extraction)
    */
   async generateSummary(pdfPath) {
     console.log("📖 Processing PDF...");
@@ -1094,79 +1209,134 @@ export class SummaryForge {
         console.error(`   API Error: ${fileUploadError.response.status} - ${JSON.stringify(fileUploadError.response.data)}`);
       }
       
-      // Fallback to text extraction
-      console.log("🔄 Falling back to text extraction with pdf-parse v2...");
+      // Fallback to intelligent chunked text extraction
+      console.log("🔄 Falling back to intelligent chunked text extraction...");
       
       try {
-        const pdfBuffer = await fsp.readFile(pdfPath);
-        const parser = new PDFParse({ data: pdfBuffer });
-        const result = await parser.getText();
-        await parser.destroy();
+        // Get PDF statistics
+        const stats = await getPdfStats(pdfPath);
+        console.log(`📊 PDF Stats: ${stats.totalPages} pages, ${stats.totalChars.toLocaleString()} chars, ~${stats.estimatedTokens.toLocaleString()} tokens`);
         
-        const extractedText = result.text;
-        const pageCount = result.total;
+        // Determine if we need chunking
+        const needsChunking = stats.totalChars > this.maxChars;
         
-        console.log(`📄 Extracted ${extractedText.length} characters from ${pageCount} pages`);
-        
-        if (!extractedText || extractedText.trim().length < 100) {
-          throw new Error("PDF appears to be empty or contains only images (scanned document)");
+        if (!needsChunking) {
+          // Small PDF - process normally without chunking
+          console.log("📄 PDF is small enough to process in one request");
+          
+          const pdfBuffer = await fsp.readFile(pdfPath);
+          const parser = new PDFParse({ data: pdfBuffer });
+          const result = await parser.getText();
+          await parser.destroy();
+          
+          const extractedText = result.text;
+          
+          if (!extractedText || extractedText.trim().length < 100) {
+            throw new Error("PDF appears to be empty or contains only images (scanned document)");
+          }
+          
+          const systemPrompt = [
+            "You are an expert technical writer. Produce a single, self-contained Markdown file.",
+            "Source: the provided book text. Do not hallucinate; pull claims from the text.",
+            "Goal: Let a reader skip the book but learn the principles.",
+            "Requirements:",
+            "- Title and author at top.",
+            "- Sections: Preface; Ch1..Ch22; Quick-Reference tables of principles and red flags; Final takeaways.",
+            "- Keep all graphics as ASCII (code fences) for diagrams/curves; preserve tables in Markdown.",
+            "- No external images or links.",
+            "- Write concisely but completely. Use headers, lists, and code-fenced ASCII diagrams.",
+            "- IMPORTANT: Add a 'Study Flashcards' section at the end with 20-30 Q&A pairs in this exact format:",
+            "  **Q: What is [concept]?**",
+            "  A: [Clear, concise answer in 1-3 sentences]",
+            "  ",
+            "  (blank line between each Q&A pair)",
+          ].join("\n");
+
+          const userPrompt = `Read the following book text and produce the full Markdown summary described above. Output ONLY Markdown content (no JSON, no preambles).\n\n${extractedText}`;
+
+          console.log("🧠 Asking GPT-5 to generate summary from extracted text...");
+          
+          const resp = await this.openai.chat.completions.create({
+            model: API_MODEL,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt }
+            ],
+            max_completion_tokens: this.maxTokens,
+          });
+
+          if (resp.usage) {
+            const cost = this.trackOpenAICost(resp.usage);
+            console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
+            console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+          }
+
+          const md = resp.choices[0]?.message?.content ?? "";
+          if (!md || md.trim().length < 200) {
+            throw new Error("Model returned unexpectedly short content");
+          }
+
+          console.log("✅ Successfully generated summary using text extraction");
+          return md;
         }
         
-        // Truncate if needed
-        let textToSend = extractedText;
-        if (extractedText.length > this.maxChars) {
-          console.log(`⚠️  Text is ${extractedText.length} chars, truncating to ${this.maxChars} chars`);
-          textToSend = extractedText.slice(0, this.maxChars);
-        }
+        // Large PDF - use intelligent chunking
+        console.log("📚 PDF is large - using intelligent chunking strategy");
+        console.log(`   This will process the ENTIRE ${stats.totalPages}-page PDF without truncation`);
         
-        const systemPrompt = [
-          "You are an expert technical writer. Produce a single, self-contained Markdown file.",
-          "Source: the provided book text. Do not hallucinate; pull claims from the text.",
-          "Goal: Let a reader skip the book but learn the principles.",
-          "Requirements:",
-          "- Title and author at top.",
-          "- Sections: Preface; Ch1..Ch22; Quick-Reference tables of principles and red flags; Final takeaways.",
-          "- Keep all graphics as ASCII (code fences) for diagrams/curves; preserve tables in Markdown.",
-          "- No external images or links.",
-          "- Write concisely but completely. Use headers, lists, and code-fenced ASCII diagrams.",
-          "- IMPORTANT: Add a 'Study Flashcards' section at the end with 20-30 Q&A pairs in this exact format:",
-          "  **Q: What is [concept]?**",
-          "  A: [Clear, concise answer in 1-3 sentences]",
-          "  ",
-          "  (blank line between each Q&A pair)",
-        ].join("\n");
-
-        const userPrompt = `Read the following book text and produce the full Markdown summary described above. Output ONLY Markdown content (no JSON, no preambles).\n\n${textToSend}`;
-
-        console.log("🧠 Asking GPT-5 to generate summary from extracted text...");
+        // Extract pages
+        console.log("📄 Extracting pages from PDF...");
+        const pages = await extractPdfPages(pdfPath);
+        console.log(`✅ Extracted ${pages.length} pages`);
         
-        const resp = await this.openai.chat.completions.create({
-          model: API_MODEL,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-          ],
-          max_completion_tokens: this.maxTokens,
+        // Calculate optimal chunk size
+        const optimalChunkSize = calculateOptimalChunkSize(stats.totalChars, 100000);
+        console.log(`📐 Using chunk size: ${optimalChunkSize.toLocaleString()} chars`);
+        
+        // Create chunks
+        const chunks = createChunks(pages, optimalChunkSize);
+        console.log(`📦 Created ${chunks.length} chunks for processing`);
+        
+        // Display chunk information
+        chunks.forEach((chunk, idx) => {
+          console.log(`   Chunk ${idx + 1}: Pages ${chunk.startPage}-${chunk.endPage} (${chunk.charCount.toLocaleString()} chars)`);
         });
-
-        // Track OpenAI costs
-        if (resp.usage) {
-          const cost = this.trackOpenAICost(resp.usage);
-          console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
-          console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+        
+        // Process each chunk
+        console.log("\n🔄 Processing chunks...");
+        const chunkSummaries = [];
+        
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          try {
+            const summary = await this.processSingleChunk(
+              chunk.text,
+              i,
+              chunks.length,
+              chunk.startPage,
+              chunk.endPage
+            );
+            chunkSummaries.push(summary);
+          } catch (chunkError) {
+            console.error(`   ❌ Failed to process chunk ${i + 1}: ${chunkError.message}`);
+            throw new Error(`Chunk processing failed at chunk ${i + 1}: ${chunkError.message}`);
+          }
         }
-
-        const md = resp.choices[0]?.message?.content ?? "";
-        if (!md || md.trim().length < 200) {
-          throw new Error("Model returned unexpectedly short content");
-        }
-
-        console.log("✅ Successfully generated summary using text extraction fallback");
+        
+        console.log(`\n✅ All ${chunks.length} chunks processed successfully`);
+        
+        // Synthesize chunks into final summary
+        const bookTitle = pdfPath.split('/').pop().replace(/\.pdf$/i, '').replace(/_/g, ' ');
+        const finalSummary = await this.synthesizeChunkSummaries(chunkSummaries, bookTitle);
+        
+        console.log("✅ Successfully generated comprehensive summary using intelligent chunking");
+        console.log(`📊 Final summary: ${finalSummary.length.toLocaleString()} characters`);
         console.log("⚠️  Note: Images/diagrams from PDF were not included (text-only extraction)");
-        return md;
+        
+        return finalSummary;
         
       } catch (textExtractionError) {
-        console.error(`❌ Text extraction fallback also failed: ${textExtractionError.message}`);
+        console.error(`❌ Text extraction fallback failed: ${textExtractionError.message}`);
         throw new Error(`Failed to generate summary: ${textExtractionError.message}`);
       }
     }
