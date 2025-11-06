@@ -1,6 +1,6 @@
 # Summary Forge Module
 
-An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of technical books in multiple formats.
+An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of ebooks in multiple formats.
 
 **Repository:** [git@github.com:profullstack/summary-forge-module.git](https://github.com/profullstack/summary-forge-module)
 
