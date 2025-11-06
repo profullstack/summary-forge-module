@@ -827,7 +827,7 @@ export class SummaryForge {
       await page.goto(pdfUrl, { waitUntil: 'networkidle2', timeout: 60000 });
       
       // Wait for PDF to render
-      await page.waitForTimeout(2000);
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
       // Get number of pages by checking the PDF viewer
       const pageCount = await page.evaluate(() => {
@@ -853,7 +853,7 @@ export class SummaryForge {
               window.PDFViewerApplication.page = pageNum;
             }
           }, i);
-          await page.waitForTimeout(1000);
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
         const screenshotPath = path.join(outputDir, `page_${i}.png`);
