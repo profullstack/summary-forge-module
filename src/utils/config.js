@@ -1,13 +1,15 @@
 /**
  * Configuration Management Utility
- * 
+ *
  * Manages user configuration stored in ~/.config/summary-forge/settings.json
  * This allows CLI users to configure API keys without needing a .env file
+ * Falls back to .env file if settings.json doesn't exist
  */
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { config as dotenvConfig } from 'dotenv';
 
 /**
  * Get the path to the config file
@@ -32,17 +34,52 @@ export async function hasConfig() {
 }
 
 /**
- * Load configuration from settings.json
+ * Load configuration from settings.json with .env fallback
  * @returns {Promise<Object|null>} Configuration object or null if not found/invalid
  */
 export async function loadConfig() {
   try {
     const configPath = getConfigPath();
     const content = await fs.readFile(configPath, 'utf8');
-    return JSON.parse(content);
+    const config = JSON.parse(content);
+    
+    // Load .env as fallback for missing values
+    dotenvConfig();
+    
+    // Merge with environment variables (config file takes precedence)
+    return {
+      openaiApiKey: config.openaiApiKey || process.env.OPENAI_API_KEY,
+      rainforestApiKey: config.rainforestApiKey || process.env.RAINFOREST_API_KEY,
+      elevenlabsApiKey: config.elevenlabsApiKey || process.env.ELEVENLABS_API_KEY,
+      twocaptchaApiKey: config.twocaptchaApiKey || process.env.TWOCAPTCHA_API_KEY,
+      browserlessApiKey: config.browserlessApiKey || process.env.BROWSERLESS_API_KEY,
+      headless: config.headless ?? (process.env.HEADLESS === 'true'),
+      enableProxy: config.enableProxy ?? (process.env.ENABLE_PROXY === 'true'),
+      proxyUrl: config.proxyUrl || process.env.PROXY_URL,
+      proxyUsername: config.proxyUsername || process.env.PROXY_USERNAME,
+      proxyPassword: config.proxyPassword || process.env.PROXY_PASSWORD,
+    };
   } catch (error) {
     if (error.code === 'ENOENT') {
-      return null; // File doesn't exist
+      // File doesn't exist, try loading from .env only
+      dotenvConfig();
+      
+      if (!process.env.OPENAI_API_KEY) {
+        return null; // No config file and no .env
+      }
+      
+      return {
+        openaiApiKey: process.env.OPENAI_API_KEY,
+        rainforestApiKey: process.env.RAINFOREST_API_KEY,
+        elevenlabsApiKey: process.env.ELEVENLABS_API_KEY,
+        twocaptchaApiKey: process.env.TWOCAPTCHA_API_KEY,
+        browserlessApiKey: process.env.BROWSERLESS_API_KEY,
+        headless: process.env.HEADLESS === 'true',
+        enableProxy: process.env.ENABLE_PROXY === 'true',
+        proxyUrl: process.env.PROXY_URL,
+        proxyUsername: process.env.PROXY_USERNAME,
+        proxyPassword: process.env.PROXY_PASSWORD,
+      };
     }
     // Invalid JSON or other error
     console.error(`Warning: Failed to load config from ${getConfigPath()}: ${error.message}`);

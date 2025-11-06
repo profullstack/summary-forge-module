@@ -104,35 +104,30 @@ program
           name: 'enableProxy',
           message: 'Enable proxy for browser requests?',
           default: existingConfig?.enableProxy ?? false
+        },
+        {
+          type: 'input',
+          name: 'proxyUrl',
+          message: 'Proxy URL (e.g., http://proxy.example.com:8080):',
+          when: (answers) => answers.enableProxy,
+          validate: (input) => input.trim().length > 0 || 'Proxy URL is required when proxy is enabled',
+          default: existingConfig?.proxyUrl
+        },
+        {
+          type: 'input',
+          name: 'proxyUsername',
+          message: 'Proxy Username:',
+          when: (answers) => answers.enableProxy,
+          default: existingConfig?.proxyUsername
+        },
+        {
+          type: 'password',
+          name: 'proxyPassword',
+          message: 'Proxy Password:',
+          when: (answers) => answers.enableProxy,
+          default: existingConfig?.proxyPassword
         }
       ]);
-      
-      // Ask for proxy details if enabled
-      if (answers.enableProxy) {
-        const proxyAnswers = await inquirer.prompt([
-          {
-            type: 'input',
-            name: 'proxyUrl',
-            message: 'Proxy URL (e.g., http://proxy.example.com):',
-            validate: (input) => input.trim().length > 0 || 'Proxy URL is required when proxy is enabled',
-            default: existingConfig?.proxyUrl
-          },
-          {
-            type: 'input',
-            name: 'proxyUsername',
-            message: 'Proxy Username:',
-            default: existingConfig?.proxyUsername
-          },
-          {
-            type: 'password',
-            name: 'proxyPassword',
-            message: 'Proxy Password:',
-            default: existingConfig?.proxyPassword
-          }
-        ]);
-        
-        Object.assign(answers, proxyAnswers);
-      }
       
       // Remove empty optional fields
       const config = {};
@@ -159,8 +154,41 @@ program
   .command('config')
   .description('Show current configuration')
   .option('--delete', 'Delete the configuration file')
+  .option('--headless <value>', 'Toggle headless mode (true/false)')
+  .option('--proxy <value>', 'Toggle proxy mode (true/false)')
   .action(async (options) => {
     try {
+      // Handle quick toggles
+      if (options.headless !== undefined || options.proxy !== undefined) {
+        const config = await loadConfig();
+        
+        if (!config) {
+          console.log(chalk.yellow('\n⚠️  No configuration found. Please run "summary setup" first.\n'));
+          process.exit(1);
+        }
+        
+        if (options.headless !== undefined) {
+          const headlessValue = options.headless === 'true' || options.headless === true;
+          config.headless = headlessValue;
+          console.log(chalk.blue(`\n🔧 Setting headless mode to: ${headlessValue}`));
+        }
+        
+        if (options.proxy !== undefined) {
+          const proxyValue = options.proxy === 'true' || options.proxy === true;
+          config.enableProxy = proxyValue;
+          console.log(chalk.blue(`🔧 Setting proxy mode to: ${proxyValue}`));
+          
+          if (proxyValue && (!config.proxyUrl || !config.proxyUsername || !config.proxyPassword)) {
+            console.log(chalk.yellow('\n⚠️  Proxy enabled but credentials missing.'));
+            console.log(chalk.blue('   Run "summary setup" to configure proxy settings.\n'));
+          }
+        }
+        
+        await saveConfig(config);
+        console.log(chalk.green('✅ Configuration updated.\n'));
+        return;
+      }
+      
       if (options.delete) {
         const { confirm } = await inquirer.prompt([
           {
@@ -202,7 +230,10 @@ program
       }
       
       console.log(chalk.white(JSON.stringify(displayConfig, null, 2)));
-      console.log(chalk.gray('\n💡 Run "summary setup" to update configuration.'));
+      console.log(chalk.gray('\n💡 Quick toggles:'));
+      console.log(chalk.gray('   summary config --headless true/false'));
+      console.log(chalk.gray('   summary config --proxy true/false'));
+      console.log(chalk.gray('\n💡 Run "summary setup" to update full configuration.'));
       console.log(chalk.gray('   Run "summary config --delete" to remove configuration.\n'));
       
     } catch (error) {

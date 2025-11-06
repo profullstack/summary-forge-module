@@ -324,26 +324,52 @@ export class SummaryForge {
   }
 
   /**
-   * Extract download links from HTML (same method as test-puppeteer.js)
+   * Extract download links from HTML
    * Prioritizes EPUB over PDF as EPUB is an open standard
+   * Enhanced to handle various link formats
    */
   extractLinks(html, baseUrl) {
-    const regex = /href=["']([^"']+\.(?:pdf|epub)(?:\?[^"']*)?)["']/gi;
     const epubLinks = new Set();
     const pdfLinks = new Set();
+    
+    // Method 1: Standard href attributes
+    const hrefRegex = /href=["']([^"']+\.(?:pdf|epub)(?:\?[^"']*)?)["']/gi;
     let m;
-    while ((m = regex.exec(html))) {
+    while ((m = hrefRegex.exec(html))) {
       let link = m[1];
       try {
         link = new URL(link, baseUrl).toString();
+        if (link.toLowerCase().includes('.epub')) {
+          epubLinks.add(link);
+        } else if (link.toLowerCase().includes('.pdf')) {
+          pdfLinks.add(link);
+        }
       } catch {}
-      
-      // Separate EPUB and PDF links
+    }
+    
+    // Method 2: Look for direct download URLs in the HTML
+    const urlRegex = /https?:\/\/[^\s"'<>]+\.(?:pdf|epub)(?:\?[^\s"'<>]*)?/gi;
+    while ((m = urlRegex.exec(html))) {
+      let link = m[0];
       if (link.toLowerCase().includes('.epub')) {
         epubLinks.add(link);
       } else if (link.toLowerCase().includes('.pdf')) {
         pdfLinks.add(link);
       }
+    }
+    
+    // Method 3: Look for data attributes that might contain download URLs
+    const dataRegex = /data-[^=]*=["']([^"']+\.(?:pdf|epub)(?:\?[^"']*)?)["']/gi;
+    while ((m = dataRegex.exec(html))) {
+      let link = m[1];
+      try {
+        link = new URL(link, baseUrl).toString();
+        if (link.toLowerCase().includes('.epub')) {
+          epubLinks.add(link);
+        } else if (link.toLowerCase().includes('.pdf')) {
+          pdfLinks.add(link);
+        }
+      } catch {}
     }
     
     // Return EPUB links first, then PDF links
@@ -477,14 +503,11 @@ export class SummaryForge {
 
   /**
    * Get Anna's Archive search URL for ASIN
-   * Searches for epub and pdf formats, prioritizing epub by listing it first
-   * Filters for better quality sources (libgen, scihub, etc.)
+   * Searches for PDF only - Anna's Archive sorts by best match by default
    */
   getAnnasArchiveUrl(asin) {
-    // Note: ext=epub comes before ext=pdf to prioritize EPUB results
-    // content=book_nonfiction helps filter for proper books vs scanned documents
-    // We'll also add sorting by file size (larger usually means better quality for technical books)
-    return `https://annas-archive.org/search?index=&page=1&sort=&content=book_nonfiction&ext=epub&ext=pdf&display=list_compact&q=${asin}`;
+    // Only search for PDF, let Anna's Archive handle sorting by relevance
+    return `https://annas-archive.org/search?index=&page=1&sort=&ext=pdf&display=list_compact&q=${asin}`;
   }
 
   /**
@@ -555,111 +578,44 @@ export class SummaryForge {
         }
       }
       
-      // Step 2: Find and prioritize epub over pdf
+      // Step 2: Get the first PDF result (Anna's Archive sorts by best match)
       await page.waitForSelector('.js-aarecord-list-outer', { timeout: 10000 });
       
-      // Get all results with their format information
-      // Look for the actual file extension in the result, not just mentions of the format
-      // Also check for quality indicators (file size, source)
-      const results = await page.$$eval('.js-aarecord-list-outer', (containers) => {
-        return containers.map((container, index) => {
-          const link = container.querySelector('a[href^="/md5/"]');
-          
-          // Get the title from the link text, not the entire container
-          const titleElement = link?.querySelector('h3') || link;
-          const title = titleElement ? titleElement.textContent.trim() : '';
-          
-          // Get metadata from the container (format, size, etc.)
-          const text = container.textContent;
-          
-          // Look for actual file extensions in the text
-          // Anna's Archive shows format like "epub, 123 KB" or "pdf, 2.5 MB"
-          const hasEpubExtension = /\.epub\b/i.test(text) || /\bepub\s*,/i.test(text);
-          const hasPdfExtension = /\.pdf\b/i.test(text) || /\bpdf\s*,/i.test(text);
-          
-          // Extract file size to help filter quality (larger is often better for books)
-          const sizeMatch = text.match(/(\d+(?:\.\d+)?)\s*(KB|MB|GB)/i);
-          let sizeInMB = 0;
-          if (sizeMatch) {
-            const size = parseFloat(sizeMatch[1]);
-            const unit = sizeMatch[2].toUpperCase();
-            if (unit === 'KB') sizeInMB = size / 1024;
-            else if (unit === 'MB') sizeInMB = size;
-            else if (unit === 'GB') sizeInMB = size * 1024;
-          }
-          
-          // Check for quality indicators
-          const hasLibgen = /libgen/i.test(text);
-          const hasScihub = /scihub/i.test(text);
-          const hasZlib = /z-lib|zlibrary/i.test(text);
-          const isScanned = /scan|camera|djvu/i.test(text);
-          
-          // Quality score (higher is better)
-          let qualityScore = 0;
-          if (hasLibgen) qualityScore += 3;
-          if (hasScihub) qualityScore += 2;
-          if (hasZlib) qualityScore += 2;
-          if (hasEpubExtension) qualityScore += 5; // EPUB is usually better quality
-          if (sizeInMB > 5) qualityScore += 2; // Larger files often indicate better quality
-          if (sizeInMB > 20) qualityScore += 1; // But not too large (might be scanned)
-          if (isScanned) qualityScore -= 10; // Heavily penalize scanned documents
-          
-          return {
-            href: link ? link.getAttribute('href') : null,
-            isEpub: hasEpubExtension,
-            isPdf: hasPdfExtension,
-            title: title.substring(0, 100), // Use actual title, not full text
-            sizeInMB,
-            qualityScore,
-            isScanned,
-            index
-          };
-        }).filter(r => r.href && (r.isEpub || r.isPdf) && !r.isScanned);
+      // Get the first result only
+      const firstResult = await page.$eval('.js-aarecord-list-outer', (container) => {
+        const link = container.querySelector('a[href^="/md5/"]');
+        const titleElement = link?.querySelector('h3') || link;
+        const title = titleElement ? titleElement.textContent.trim() : '';
+        const text = container.textContent;
+        
+        // Extract file size
+        const sizeMatch = text.match(/(\d+(?:\.\d+)?)\s*(KB|MB|GB)/i);
+        let sizeInMB = 0;
+        if (sizeMatch) {
+          const size = parseFloat(sizeMatch[1]);
+          const unit = sizeMatch[2].toUpperCase();
+          if (unit === 'KB') sizeInMB = size / 1024;
+          else if (unit === 'MB') sizeInMB = size;
+          else if (unit === 'GB') sizeInMB = size * 1024;
+        }
+        
+        return {
+          href: link ? link.getAttribute('href') : null,
+          title: title.substring(0, 100),
+          sizeInMB
+        };
       });
       
-      if (results.length === 0) {
-        throw new Error('No epub or pdf results found on Anna\'s Archive');
+      if (!firstResult || !firstResult.href) {
+        throw new Error('No PDF result found on Anna\'s Archive');
       }
       
-      // Sort by quality score (highest first)
-      results.sort((a, b) => b.qualityScore - a.qualityScore);
+      console.log(`📖 Found first result (best match):`);
+      console.log(`   Title: "${firstResult.title}"`);
+      console.log(`   Size: ${firstResult.sizeInMB.toFixed(1)}MB`);
+      console.log(`✅ Using first result (Anna's Archive sorts by relevance)`);
       
-      // Separate EPUB and PDF results
-      const epubResults = results.filter(r => r.isEpub && !r.isPdf);
-      const pdfResults = results.filter(r => r.isPdf && !r.isEpub);
-      const bothResults = results.filter(r => r.isEpub && r.isPdf);
-      
-      console.log(`📖 Found ${results.length} total results (filtered, excluding scanned):`);
-      console.log(`   - ${epubResults.length} EPUB-only results`);
-      console.log(`   - ${pdfResults.length} PDF-only results`);
-      console.log(`   - ${bothResults.length} results with both formats`);
-      
-      // Debug: Show first few results with quality scores
-      if (results.length > 0) {
-        console.log(`\n📋 Top 3 results (sorted by quality):`);
-        results.slice(0, 3).forEach(r => {
-          const formats = [];
-          if (r.isEpub) formats.push('EPUB');
-          if (r.isPdf) formats.push('PDF');
-          console.log(`   ${r.index + 1}. [${formats.join('/')}] Score: ${r.qualityScore}, Size: ${r.sizeInMB.toFixed(1)}MB`);
-          console.log(`      "${r.title}"`);
-        });
-      }
-      
-      // Select the highest quality result (already sorted)
-      let preferredResult = results[0];
-      let format;
-      
-      if (preferredResult.isEpub && !preferredResult.isPdf) {
-        format = 'EPUB';
-        console.log(`✅ Selected EPUB result (quality score: ${preferredResult.qualityScore})`);
-      } else if (preferredResult.isEpub && preferredResult.isPdf) {
-        format = 'EPUB/PDF';
-        console.log(`✅ Selected result with both formats (quality score: ${preferredResult.qualityScore}), will prefer EPUB download`);
-      } else {
-        format = 'PDF';
-        console.log(`✅ Selected PDF result (quality score: ${preferredResult.qualityScore})`);
-      }
+      const preferredResult = firstResult;
       
       const bookPageUrl = `https://annas-archive.org${preferredResult.href}`;
       console.log(`📖 Book page: ${bookPageUrl}`);
@@ -755,8 +711,8 @@ export class SummaryForge {
           
           const buffer = await response.arrayBuffer();
           
-          // Determine file extension from URL
-          const ext = downloadUrl.includes('.pdf') ? '.pdf' : '.epub';
+          // Should always be PDF now
+          const ext = '.pdf';
           const filename = `${dirName}${ext}`;
           const filepath = path.join(bookDir, filename);
           
@@ -764,31 +720,17 @@ export class SummaryForge {
           console.log(`✅ Downloaded: ${filepath}`);
           console.log(`📖 File size: ${(buffer.byteLength / 1024 / 1024).toFixed(2)} MB`);
           
-          // If we downloaded epub, convert to pdf
-          let finalPath = filepath;
-          if (ext === '.epub') {
-            console.log(`📚 Downloaded EPUB, converting to PDF...`);
-            try {
-              finalPath = await this.convertEpubToPdf(filepath);
-              console.log(`✅ Converted to PDF: ${finalPath}`);
-            } catch (err) {
-              console.log(`⚠️  EPUB to PDF conversion failed: ${err.message}`);
-              console.log(`   Continuing with EPUB file...`);
-              finalPath = filepath;
-            }
-          }
-          
           await browser.close();
           
           return {
-            filepath: finalPath,
+            filepath,
             originalPath: filepath,
             directory: bookDir,
-            filename: path.basename(finalPath),
+            filename: path.basename(filepath),
             originalFilename: filename,
             title: finalTitle,
-            format: ext === '.epub' ? 'epub' : 'pdf',
-            converted: ext === '.epub' && finalPath !== filepath
+            format: 'pdf',
+            converted: false
           };
           
         } catch (error) {
