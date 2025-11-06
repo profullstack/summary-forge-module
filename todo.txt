@@ -4,4 +4,8 @@ accept "summary url <url>" to just fetch the page with puppeteer, santize the ht
 ---
 
 
+let's add support for https://welib.org/search?sort=newest&index=&page=1&q=173210221X&ext=pdf in addigiont to anna's archive. we can use it as a fallback if anna's ever goes bust.
+
+
+
 
