@@ -338,35 +338,201 @@ program
 
 program
   .command('title <bookTitle...>')
-  .description('Search for a book by title (shortcut for search)')
+  .description('Search 1lib.sk for a book by title (shortcut for search)')
   .option('-f, --force', 'Skip prompts: auto-select first result and process immediately')
   .action(async (bookTitleParts, options) => {
     const title = bookTitleParts.join(' ');
-    await searchAndDisplay(title, options.force);
+    await search1libAndDisplay(title, options.force);
   });
 
 program
   .command('search <query>')
-  .description('Search Anna\'s Archive directly by title or partial match (bypasses Amazon/Rainforest API)')
+  .description('Search for books (default: 1lib.sk, use --source to change)')
+  .option('--source <source>', 'Search source: zlib (1lib.sk, default) or anna (Anna\'s Archive)', 'zlib')
   .option('-n, --max-results <number>', 'Maximum number of results to display', '10')
-  .option('-f, --format <format>', 'File format filter: pdf, epub, pdf,epub, or all', 'pdf')
-  .option('-s, --sort <sort>', 'Sort by: date (newest) or leave empty for relevance', '')
-  .option('-l, --language <language>', 'Language code(s), comma-separated (e.g., en, es, fr)', 'en')
-  .option('--sources <sources>', 'Data sources, comma-separated (e.g., zlib,lgli,lgrs). Leave empty to search all sources.')
+  .option('--year-from <year>', 'Filter by publication year from (e.g., 2020)')
+  .option('--year-to <year>', 'Filter by publication year to (e.g., 2024)')
+  .option('-l, --languages <languages>', 'Language filter, comma-separated (default: english)', 'english')
+  .option('-e, --extensions <extensions>', 'File extensions, comma-separated (case-insensitive, default: PDF)', 'PDF')
+  .option('--content-types <types>', 'Content types, comma-separated (default: book)', 'book')
+  .option('-s, --order <order>', 'Sort order: date (newest) or empty for relevance', '')
+  .option('--view <view>', 'View type: list or grid (default: list)', 'list')
+  .option('--sources <sources>', 'Anna\'s Archive: data sources, comma-separated (e.g., zlib,lgli)')
+  .action(async (query, options) => {
+    const source = options.source.toLowerCase();
+    
+    if (source === 'anna') {
+      // Use Anna's Archive (old logic)
+      await searchAnnasArchive(query, options);
+      return;
+    }
+    
+    // Use 1lib.sk with single-session search+download
+    try {
+      const config = await loadConfig();
+      config.force = false;
+      
+      config.promptFn = async (dirPath) => {
+        const { action } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'action',
+            message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+            choices: [
+              { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+              { name: 'Skip (cancel operation)', value: 'skip' },
+              { name: 'Cancel', value: 'cancel' }
+            ]
+          }
+        ]);
+        return action;
+      };
+      
+      const forge = new SummaryForge(config);
+      
+      const maxResults = parseInt(options.maxResults, 10);
+      const yearFrom = options.yearFrom ? parseInt(options.yearFrom, 10) : null;
+      const yearTo = options.yearTo ? parseInt(options.yearTo, 10) : null;
+      const languages = options.languages ? options.languages.split(',').map(l => l.trim()) : [];
+      const extensions = options.extensions ? options.extensions.split(',').map(e => e.trim().toUpperCase()) : [];
+      const contentTypes = options.contentTypes ? options.contentTypes.split(',').map(t => t.trim()) : [];
+      
+      const spinner = ora(`Searching 1lib.sk for "${query}"...`).start();
+      
+      const { results, download } = await forge.search1libAndDownload(query, {
+        maxResults,
+        yearFrom,
+        yearTo,
+        languages,
+        extensions,
+        contentTypes,
+        order: options.order,
+        view: options.view
+      }, '.', async (results) => {
+        spinner.stop();
+        
+        if (results.length === 0) {
+          console.log(chalk.yellow('\n📚 No results found'));
+          return null;
+        }
+        
+        console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+      
+      // Display results
+      results.forEach((result, idx) => {
+        console.log(chalk.white(`${idx + 1}. ${result.title}`));
+        if (result.author) {
+          console.log(chalk.gray(`   Author: ${result.author}`));
+        }
+        if (result.year) {
+          console.log(chalk.gray(`   Year: ${result.year}`));
+        }
+        console.log(chalk.gray(`   Format: ${result.extension} | Size: ${result.size}`));
+        if (result.language) {
+          console.log(chalk.gray(`   Language: ${result.language}`));
+        }
+        if (result.isbn) {
+          console.log(chalk.gray(`   ISBN: ${result.isbn}`));
+        }
+        console.log('');
+      });
+      
+      // Ask user to select a book
+      const { selectedIndex } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedIndex',
+          message: 'Select a book to download:',
+          choices: [
+            ...results.map((result, idx) => ({
+              name: `${result.title} (${result.extension}, ${result.size})`,
+              value: idx
+            })),
+            { name: chalk.gray('Cancel'), value: -1 }
+          ],
+          pageSize: 15
+        }
+      ]);
+      
+      if (selectedIndex === -1) {
+        console.log(chalk.gray('Cancelled.'));
+        return null;
+      }
+      
+      spinner.start('Downloading (same session)...');
+      return selectedIndex;
+    });
+    
+    spinner.stop();
+    
+    if (!download) {
+      return;
+    }
+    
+    console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
+    
+    const { shouldProcess } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'shouldProcess',
+        message: 'Would you like to process this book now?',
+        default: true
+      }
+    ]);
+    
+    if (shouldProcess) {
+      spinner.start('Processing book...');
+      const result = await forge.processFile(download.filepath, download.identifier);
+      spinner.stop();
+      console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+      
+      // Display cost summary
+      console.log(chalk.blue('\n💰 Cost Summary:'));
+      console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
+      console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
+      console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
+      console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+    }
+      
+    } catch (error) {
+      console.error(chalk.red(`\n❌ Error: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('search1lib <query>')
+  .description('Search 1lib.sk for books (faster, no DDoS protection)')
+  .option('-n, --max-results <number>', 'Maximum number of results to display', '10')
+  .option('--year-from <year>', 'Filter by publication year from (e.g., 2020)')
+  .option('--year-to <year>', 'Filter by publication year to (e.g., 2024)')
+  .option('-l, --languages <languages>', 'Language filter, comma-separated (e.g., english,spanish)', 'english')
+  .option('-e, --extensions <extensions>', 'File extensions, comma-separated (e.g., PDF,EPUB)', 'PDF')
+  .option('--content-types <types>', 'Content types, comma-separated (e.g., book,article)', 'book')
+  .option('-s, --order <order>', 'Sort order: date (newest) or leave empty for relevance', '')
+  .option('--view <view>', 'View type: list or grid', 'list')
   .action(async (query, options) => {
     try {
       const forge = await createForge();
       
       const maxResults = parseInt(options.maxResults, 10);
+      const yearFrom = options.yearFrom ? parseInt(options.yearFrom, 10) : null;
+      const yearTo = options.yearTo ? parseInt(options.yearTo, 10) : null;
+      const languages = options.languages ? options.languages.split(',').map(l => l.trim()) : [];
+      const extensions = options.extensions ? options.extensions.split(',').map(e => e.trim().toUpperCase()) : [];
+      const contentTypes = options.contentTypes ? options.contentTypes.split(',').map(t => t.trim()) : [];
       
-      const spinner = ora(`Searching Anna's Archive for "${query}"...`).start();
+      const spinner = ora(`Searching 1lib.sk for "${query}"...`).start();
       
-      const results = await forge.searchAnnasArchive(query, {
+      const results = await forge.search1lib(query, {
         maxResults,
-        format: options.format,
-        sortBy: options.sort,
-        language: options.language,
-        sources: options.sources || null
+        yearFrom,
+        yearTo,
+        languages,
+        extensions,
+        contentTypes,
+        order: options.order,
+        view: options.view
       });
       
       spinner.stop();
@@ -384,7 +550,16 @@ program
         if (result.author) {
           console.log(chalk.gray(`   Author: ${result.author}`));
         }
-        console.log(chalk.gray(`   Format: ${result.format.toUpperCase()} | Size: ${result.sizeInMB.toFixed(1)} MB`));
+        if (result.year) {
+          console.log(chalk.gray(`   Year: ${result.year}`));
+        }
+        console.log(chalk.gray(`   Format: ${result.extension} | Size: ${result.size}`));
+        if (result.language) {
+          console.log(chalk.gray(`   Language: ${result.language}`));
+        }
+        if (result.isbn) {
+          console.log(chalk.gray(`   ISBN: ${result.isbn}`));
+        }
         console.log(chalk.cyan(`   URL: ${result.url}`));
         console.log('');
       });
@@ -394,10 +569,10 @@ program
         {
           type: 'list',
           name: 'selectedIndex',
-          message: 'Select a book to download:',
+          message: 'Select a book to view details:',
           choices: [
             ...results.map((result, idx) => ({
-              name: `${result.title} (${result.format.toUpperCase()}, ${result.sizeInMB.toFixed(1)} MB)`,
+              name: `${result.title} (${result.extension}, ${result.size})`,
               value: idx
             })),
             { name: chalk.gray('Cancel'), value: -1 }
@@ -413,43 +588,90 @@ program
       
       const selectedBook = results[selectedIndex];
       
-      // Extract MD5 hash from URL to use as ASIN
-      const md5Match = selectedBook.href.match(/\/md5\/([a-f0-9]+)/);
-      const asin = md5Match ? md5Match[1] : `aa_${Date.now()}`;
+      console.log(chalk.blue('\n📖 Book Details:'));
+      console.log(chalk.white(`   Title: ${selectedBook.title}`));
+      if (selectedBook.author) {
+        console.log(chalk.white(`   Author: ${selectedBook.author}`));
+      }
+      if (selectedBook.year) {
+        console.log(chalk.white(`   Year: ${selectedBook.year}`));
+      }
+      console.log(chalk.white(`   Format: ${selectedBook.extension}`));
+      console.log(chalk.white(`   Size: ${selectedBook.size}`));
+      if (selectedBook.language) {
+        console.log(chalk.white(`   Language: ${selectedBook.language}`));
+      }
+      if (selectedBook.isbn) {
+        console.log(chalk.white(`   ISBN: ${selectedBook.isbn}`));
+      }
+      console.log(chalk.cyan(`   URL: ${selectedBook.url}`));
+      console.log(chalk.cyan(`   Download: ${selectedBook.downloadUrl}\n`));
       
-      // Download the book
-      const downloadSpinner = ora('Downloading from Anna\'s Archive...').start();
-      try {
-        const download = await forge.downloadFromAnnasArchive(asin, '.', selectedBook.title);
-        downloadSpinner.stop();
-        
-        console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
-        
-        const { shouldProcess } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'shouldProcess',
-            message: 'Would you like to process this book now?',
-            default: true
-          }
-        ]);
-        
-        if (shouldProcess) {
-          downloadSpinner.start('Processing book...');
-          const result = await forge.processFile(download.filepath, download.asin);
-          downloadSpinner.stop();
-          console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
-          
-          // Display cost summary
-          console.log(chalk.blue('\n💰 Cost Summary:'));
-          console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-          console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-          console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-          console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+      // Ask if user wants to download
+      const { shouldDownload } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'shouldDownload',
+          message: 'Would you like to download this book now?',
+          default: true
         }
-      } catch (error) {
-        downloadSpinner.stop();
-        console.error(chalk.red(`\n❌ Download failed: ${error.message}`));
+      ]);
+      
+      if (shouldDownload) {
+        const downloadSpinner = ora('Downloading from 1lib.sk...').start();
+        try {
+          const config = await loadConfig();
+          config.force = false; // Will prompt for directory overwrite
+          
+          // Add prompt function for interactive mode
+          config.promptFn = async (dirPath) => {
+            const { action } = await inquirer.prompt([
+              {
+                type: 'list',
+                name: 'action',
+                message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+                choices: [
+                  { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+                  { name: 'Skip (cancel operation)', value: 'skip' },
+                  { name: 'Cancel', value: 'cancel' }
+                ]
+              }
+            ]);
+            return action;
+          };
+          
+          const forge = new SummaryForge(config);
+          const download = await forge.downloadFrom1lib(selectedBook.url, '.', selectedBook.title);
+          downloadSpinner.stop();
+          
+          console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
+          
+          const { shouldProcess } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'shouldProcess',
+              message: 'Would you like to process this book now?',
+              default: true
+            }
+          ]);
+          
+          if (shouldProcess) {
+            downloadSpinner.start('Processing book...');
+            const result = await forge.processFile(download.filepath, download.identifier);
+            downloadSpinner.stop();
+            console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+            
+            // Display cost summary
+            console.log(chalk.blue('\n💰 Cost Summary:'));
+            console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
+            console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
+            console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
+            console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+          }
+        } catch (error) {
+          downloadSpinner.stop();
+          console.error(chalk.red(`\n❌ Download failed: ${error.message}`));
+        }
       }
       
     } catch (error) {
@@ -459,73 +681,132 @@ program
   });
 
 program
-  .command('isbn <asin>')
-  .description('Download and process a book by ISBN/ASIN from Anna\'s Archive')
-  .option('--no-download', 'Skip download and just show URL')
+  .command('isbn <isbn>')
+  .description('Search and download a book by ISBN (default: 1lib.sk, use --source to change)')
+  .option('--source <source>', 'Search source: zlib (1lib.sk, default) or anna (Anna\'s Archive)', 'zlib')
   .option('-f, --force', 'Overwrite existing directory without prompting')
-  .action(async (asin, options) => {
+  .action(async (isbn, options) => {
+    const source = options.source.toLowerCase();
+    
+    if (source === 'anna') {
+      // Use Anna's Archive for ISBN lookup
+      await isbnAnnasArchive(isbn, options.force);
+      return;
+    }
+    
+    // Use 1lib.sk with single-session search+download (same as search command)
     try {
-      // Load config first
       const config = await loadConfig();
-      
-      if (!config) {
-        console.log(chalk.yellow('\n⚠️  No configuration found. Please run "summary setup" first.\n'));
-        process.exit(1);
-      }
-      
-      // Check if just showing URL
-      if (options.download === false) {
-        const tempForge = new SummaryForge(config);
-        const url = tempForge.getAnnasArchiveUrl(asin, null);
-        console.log(chalk.blue(`\n🌐 Anna's Archive URL:`));
-        console.log(chalk.cyan(url));
-        console.log(chalk.yellow(`\n⚠️  Please download the EPUB manually, then run:`));
-        console.log(chalk.white(`   summary file /path/to/downloaded/book.epub\n`));
-        return;
-      }
-      
-      // Set up directory protection
       config.force = options.force || false;
       
-      // Add prompt function for interactive mode
-      if (!config.force) {
-        config.promptFn = async (dirPath) => {
-          const { action } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'action',
-              message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
-              choices: [
-                { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
-                { name: 'Skip (cancel operation)', value: 'skip' },
-                { name: 'Cancel', value: 'cancel' }
-              ]
-            }
-          ]);
-          return action;
-        };
-      }
+      config.promptFn = async (dirPath) => {
+        const { action } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'action',
+            message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+            choices: [
+              { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+              { name: 'Skip (cancel operation)', value: 'skip' },
+              { name: 'Cancel', value: 'cancel' }
+            ]
+          }
+        ]);
+        return action;
+      };
       
       const forge = new SummaryForge(config);
       
-      const spinner = ora('Downloading from Anna\'s Archive...').start();
-      const download = await forge.downloadFromAnnasArchive(asin);
+      const spinner = ora(`Searching 1lib.sk for ISBN ${isbn}...`).start();
+      
+      const { results, download } = await forge.search1libAndDownload(isbn, {
+        maxResults: 5,
+        extensions: ['PDF']  // PDF only by default
+      }, '.', async (results) => {
+        spinner.stop();
+        
+        if (results.length === 0) {
+          console.log(chalk.yellow('\n📚 No results found for this ISBN'));
+          return null;
+        }
+        
+        console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+        
+        // Display results
+        results.forEach((result, idx) => {
+          console.log(chalk.white(`${idx + 1}. ${result.title}`));
+          if (result.author) {
+            console.log(chalk.gray(`   Author: ${result.author}`));
+          }
+          if (result.year) {
+            console.log(chalk.gray(`   Year: ${result.year}`));
+          }
+          console.log(chalk.gray(`   Format: ${result.extension} | Size: ${result.size}`));
+          if (result.isbn) {
+            console.log(chalk.gray(`   ISBN: ${result.isbn}`));
+          }
+          console.log('');
+        });
+        
+        // Auto-select or prompt
+        if (options.force && results.length > 0) {
+          console.log(chalk.blue(`📖 Auto-selected first result (--force):`));
+          console.log(chalk.white(`   ${results[0].title}\n`));
+          spinner.start('Downloading (same session)...');
+          return 0;
+        }
+        
+        const { selectedIndex } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'selectedIndex',
+            message: 'Select a book to download:',
+            choices: [
+              ...results.map((result, idx) => ({
+                name: `${result.title} (${result.extension}, ${result.size})`,
+                value: idx
+              })),
+              { name: chalk.gray('Cancel'), value: -1 }
+            ],
+            pageSize: 15
+          }
+        ]);
+        
+        if (selectedIndex === -1) {
+          console.log(chalk.gray('Cancelled.'));
+          return null;
+        }
+        
+        spinner.start('Downloading (same session)...');
+        return selectedIndex;
+      });
+      
       spinner.stop();
+      
+      if (!download) {
+        return;
+      }
       
       console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
       
-      const { shouldProcess } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'shouldProcess',
-          message: 'Would you like to process this book now?',
-          default: true
-        }
-      ]);
+      let shouldProcess = true;
+      if (!options.force) {
+        const answer = await inquirer.prompt([
+          {
+            type: 'confirm',
+            name: 'shouldProcess',
+            message: 'Would you like to process this book now?',
+            default: true
+          }
+        ]);
+        shouldProcess = answer.shouldProcess;
+      } else {
+        console.log(chalk.blue('🚀 Auto-processing (--force)...\n'));
+      }
       
       if (shouldProcess) {
         spinner.start('Processing book...');
-        const result = await forge.processFile(download.filepath, download.asin);
+        const result = await forge.processFile(download.filepath, download.identifier);
         spinner.stop();
         console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
         
@@ -714,7 +995,135 @@ program
     }
   });
 
-// Helper function for search and display
+// Helper function for 1lib.sk search and display
+async function search1libAndDisplay(title, force = false) {
+  try {
+    const config = await loadConfig();
+    config.force = force;
+    
+    if (!force) {
+      config.promptFn = async (dirPath) => {
+        const { action } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'action',
+            message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+            choices: [
+              { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+              { name: 'Skip (cancel operation)', value: 'skip' },
+              { name: 'Cancel', value: 'cancel' }
+            ]
+          }
+        ]);
+        return action;
+      };
+    }
+    
+    const forge = new SummaryForge(config);
+    
+    const spinner = ora(`Searching 1lib.sk for "${title}"...`).start();
+    
+    const { results, download } = await forge.search1libAndDownload(title, {
+      maxResults: 10,
+      extensions: ['PDF']
+    }, '.', async (results) => {
+      spinner.stop();
+      
+      if (results.length === 0) {
+        console.log(chalk.yellow('\n📚 No results found'));
+        return null;
+      }
+      
+      if (force && results.length > 0) {
+        console.log(chalk.blue(`\n📚 Auto-selected first result (--force):`));
+        console.log(chalk.white(`   ${results[0].title}\n`));
+        spinner.start('Downloading (same session)...');
+        return 0;
+      }
+      
+      console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+      
+      // Display results
+      results.forEach((result, idx) => {
+        console.log(chalk.white(`${idx + 1}. ${result.title}`));
+        if (result.author) {
+          console.log(chalk.gray(`   Author: ${result.author}`));
+        }
+        if (result.year) {
+          console.log(chalk.gray(`   Year: ${result.year}`));
+        }
+        console.log(chalk.gray(`   Format: ${result.extension} | Size: ${result.size}`));
+        console.log('');
+      });
+      
+      const { selectedIndex } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedIndex',
+          message: 'Select a book to download:',
+          choices: [
+            ...results.map((result, idx) => ({
+              name: `${result.title} (${result.extension}, ${result.size})`,
+              value: idx
+            })),
+            { name: chalk.gray('Cancel'), value: -1 }
+          ],
+          pageSize: 15
+        }
+      ]);
+      
+      if (selectedIndex === -1) {
+        console.log(chalk.gray('Cancelled.'));
+        return null;
+      }
+      
+      spinner.start('Downloading (same session)...');
+      return selectedIndex;
+    });
+    
+    spinner.stop();
+    
+    if (!download) {
+      return;
+    }
+    
+    console.log(chalk.green(`\n✅ Downloaded: ${download.filepath}`));
+    
+    let shouldProcess = true;
+    if (!force) {
+      const answer = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'shouldProcess',
+          message: 'Would you like to process this book now?',
+          default: true
+        }
+      ]);
+      shouldProcess = answer.shouldProcess;
+    } else {
+      console.log(chalk.blue('🚀 Auto-processing (--force)...\n'));
+    }
+    
+    if (shouldProcess) {
+      spinner.start('Processing book...');
+      const result = await forge.processFile(download.filepath, download.identifier);
+      spinner.stop();
+      console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+      
+      // Display cost summary
+      console.log(chalk.blue('\n💰 Cost Summary:'));
+      console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
+      console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
+      console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
+      console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+    }
+  } catch (error) {
+    console.error(chalk.red(`\n❌ Error: ${error.message}`));
+    process.exit(1);
+  }
+}
+
+// Helper function for Anna's Archive search and display
 async function searchAndDisplay(title, force = false) {
   try {
     const spinner = ora('Searching Amazon...').start();

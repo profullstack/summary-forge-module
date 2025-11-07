@@ -820,6 +820,841 @@ export class SummaryForge {
   }
 
   /**
+   * Search 1lib.sk for books
+   * 1lib.sk is a simpler alternative to Anna's Archive with no DDoS protection
+   *
+   * @param {string} query - Search query (title, author, ISBN, etc.)
+   * @param {Object} options - Search options
+   * @param {number} options.maxResults - Maximum number of results to return (default: 10)
+   * @param {number} options.yearFrom - Filter by publication year from (e.g., 2020)
+   * @param {number} options.yearTo - Filter by publication year to (e.g., 2024)
+   * @param {string[]} options.languages - Filter by languages (e.g., ['english', 'spanish'])
+   * @param {string[]} options.extensions - Filter by file extensions (e.g., ['PDF', 'EPUB'])
+   * @param {string[]} options.contentTypes - Filter by content types (e.g., ['book', 'article'])
+   * @param {string} options.order - Sort order: '' (relevance) or 'date' (newest first)
+   * @param {string} options.view - View type: 'list' or 'grid' (default: 'list')
+   * @returns {Promise<Array>} Array of search results
+   */
+  async search1lib(query, options = {}) {
+    const {
+      maxResults = 10,
+      yearFrom = null,
+      yearTo = null,
+      languages = [],
+      extensions = [],
+      contentTypes = [],
+      order = '',
+      view = 'list'
+    } = options;
+
+    if (!this.enableProxy || !this.proxyUrl) {
+      throw new Error('Proxy configuration is required for 1lib.sk search');
+    }
+
+    console.log(`🔍 Searching 1lib.sk for "${query}"...`);
+    
+    // Build search URL matching 1lib.sk format
+    const params = new URLSearchParams({
+      s: query,
+      order: order,
+      view: view
+    });
+    
+    // Add year filters
+    if (yearFrom) {
+      params.append('yearFrom', yearFrom.toString());
+    }
+    if (yearTo) {
+      params.append('yearTo', yearTo.toString());
+    }
+    
+    // Add language filters (array format)
+    languages.forEach((lang, idx) => {
+      params.append(`languages[${idx}]`, lang);
+    });
+    
+    // Add extension filters (array format)
+    extensions.forEach((ext, idx) => {
+      params.append(`extensions[${idx}]`, ext);
+    });
+    
+    // Add content type filters (array format)
+    contentTypes.forEach((type, idx) => {
+      params.append(`selected_content_types[${idx}]`, type);
+    });
+    
+    const searchUrl = `https://1lib.sk/s/${encodeURIComponent(query)}/?${params.toString()}`;
+    
+    console.log(`🌐 Search URL: ${searchUrl}`);
+    
+    // Set up proxy for search
+    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+    const proxyUrlObj = new URL(this.proxyUrl);
+    const proxyHost = proxyUrlObj.hostname;
+    const proxyPort = parseInt(proxyUrlObj.port) || 80;
+    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    const proxyPassword = this.proxyPassword;
+    
+    console.log(`🔒 Using proxy session ${sessionId}`);
+    
+    const userDataDir = `./puppeteer_1lib_${sessionId}_${Date.now()}`;
+    
+    const browser = await puppeteer.launch({
+      headless: this.headless,
+      args: [
+        `--proxy-server=${proxyHost}:${proxyPort}`,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
+      userDataDir,
+      defaultViewport: { width: 1200, height: 800 },
+    });
+    
+    try {
+      const page = await browser.newPage();
+      
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+      );
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+      });
+      
+      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      
+      // Navigate to search page
+      console.log(`🌐 Navigating to search page...`);
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      
+      // Wait for search results (1lib.sk uses simpler structure)
+      console.log('⏳ Waiting for search results...');
+      
+      // Try to wait for results container
+      try {
+        await page.waitForSelector('.resItemBox, .book-item, .itemCoverWrapper', { timeout: 30000 });
+        console.log('✅ Search results loaded');
+      } catch (selectorError) {
+        // If no results found, return empty array
+        console.log('ℹ️  No results found or page structure different');
+        await browser.close();
+        
+        // Clean up browser profile
+        try {
+          await fsp.rm(userDataDir, { recursive: true, force: true });
+        } catch (cleanupErr) {
+          // Ignore cleanup errors
+        }
+        
+        return [];
+      }
+      
+      // Extract search results from z-bookcard elements
+      const results = await page.evaluate((maxResults) => {
+        const items = [];
+        
+        // Select z-bookcard elements (the actual book data containers)
+        const bookcards = document.querySelectorAll('z-bookcard');
+        
+        for (let i = 0; i < Math.min(bookcards.length, maxResults); i++) {
+          const card = bookcards[i];
+          
+          try {
+            // Extract data from attributes
+            const isbn = card.getAttribute('isbn') || null;
+            const href = card.getAttribute('href') || '';
+            const download = card.getAttribute('download') || '';
+            const deleted = card.getAttribute('deleted') || '';
+            const publisher = card.getAttribute('publisher') || null;
+            const language = card.getAttribute('language') || null;
+            const year = card.getAttribute('year') ? parseInt(card.getAttribute('year'), 10) : null;
+            const extension = card.getAttribute('extension') || 'pdf';
+            const filesize = card.getAttribute('filesize') || 'Unknown';
+            
+            // Extract title from slot
+            const titleEl = card.querySelector('[slot="title"]');
+            const title = titleEl ? titleEl.textContent.trim() : '';
+            
+            // Extract author from slot
+            const authorEl = card.querySelector('[slot="author"]');
+            const author = authorEl ? authorEl.textContent.trim() : null;
+            
+            // Build full URLs
+            const url = href ? `https://1lib.sk${href}` : '';
+            const downloadUrl = download ? `https://1lib.sk${download}` : '';
+            
+            // Skip deleted books (no download link)
+            if (deleted === '1' || !download) {
+              continue;
+            }
+            
+            if (title && url) {
+              items.push({
+                index: items.length + 1,
+                title,
+                author,
+                year,
+                language,
+                extension: extension.toUpperCase(),
+                size: filesize,
+                isbn,
+                publisher,
+                url,
+                downloadUrl,
+                href
+              });
+            }
+          } catch (itemError) {
+            console.error('Error extracting item:', itemError);
+          }
+        }
+        
+        return items;
+      }, maxResults);
+      
+      await browser.close();
+      
+      // Clean up browser profile
+      try {
+        await fsp.rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+      
+      console.log(`✅ Found ${results.length} results`);
+      
+      return results;
+      
+    } catch (error) {
+      await browser.close();
+      
+      // Clean up browser profile
+      try {
+        await fsp.rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+      
+      throw new Error(`Failed to search 1lib.sk: ${error.message}`);
+    }
+  }
+
+  /**
+   * Search 1lib.sk and download a book in one session
+   * Keeps browser session alive to avoid download link expiration
+   *
+   * @param {string} query - Search query
+   * @param {Object} searchOptions - Search options (same as search1lib)
+   * @param {string} outputDir - Directory to save the file
+   * @param {Function} selectCallback - Async function that receives results and returns selected index
+   * @returns {Promise<Object>} { results, download } - Search results and download info
+   */
+  async search1libAndDownload(query, searchOptions = {}, outputDir = '.', selectCallback = null) {
+    const {
+      maxResults = 10,
+      yearFrom = null,
+      yearTo = null,
+      languages = [],
+      extensions = [],
+      contentTypes = [],
+      order = '',
+      view = 'list'
+    } = searchOptions;
+
+    if (!this.enableProxy || !this.proxyUrl) {
+      throw new Error('Proxy configuration is required for 1lib.sk');
+    }
+
+    console.log(`🔍 Searching 1lib.sk for "${query}"...`);
+    
+    // Build search URL
+    const params = new URLSearchParams({
+      s: query,
+      order: order,
+      view: view
+    });
+    
+    if (yearFrom) params.append('yearFrom', yearFrom.toString());
+    if (yearTo) params.append('yearTo', yearTo.toString());
+    
+    languages.forEach((lang, idx) => {
+      params.append(`languages[${idx}]`, lang);
+    });
+    
+    extensions.forEach((ext, idx) => {
+      params.append(`extensions[${idx}]`, ext);
+    });
+    
+    contentTypes.forEach((type, idx) => {
+      params.append(`selected_content_types[${idx}]`, type);
+    });
+    
+    const searchUrl = `https://1lib.sk/s/${encodeURIComponent(query)}/?${params.toString()}`;
+    
+    // Set up proxy
+    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+    const proxyUrlObj = new URL(this.proxyUrl);
+    const proxyHost = proxyUrlObj.hostname;
+    const proxyPort = parseInt(proxyUrlObj.port) || 80;
+    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    const proxyPassword = this.proxyPassword;
+    
+    console.log(`🔒 Using proxy session ${sessionId}`);
+    
+    const userDataDir = `./puppeteer_1lib_combined_${sessionId}_${Date.now()}`;
+    
+    const browser = await puppeteer.launch({
+      headless: this.headless,
+      args: [
+        `--proxy-server=${proxyHost}:${proxyPort}`,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
+      userDataDir,
+      defaultViewport: { width: 1200, height: 800 },
+    });
+    
+    try {
+      const page = await browser.newPage();
+      
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+      );
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+      });
+      
+      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      
+      // Navigate to search page
+      console.log(`🌐 Navigating to search page...`);
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      
+      // Wait for search results
+      console.log('⏳ Waiting for search results...');
+      
+      try {
+        await page.waitForSelector('z-bookcard', { timeout: 30000 });
+        console.log('✅ Search results loaded');
+      } catch (selectorError) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error('No search results found');
+      }
+      
+      // Extract search results
+      const results = await page.evaluate((maxResults) => {
+        const items = [];
+        const bookcards = document.querySelectorAll('z-bookcard');
+        
+        for (let i = 0; i < Math.min(bookcards.length, maxResults); i++) {
+          const card = bookcards[i];
+          
+          const isbn = card.getAttribute('isbn') || null;
+          const href = card.getAttribute('href') || '';
+          const download = card.getAttribute('download') || '';
+          const deleted = card.getAttribute('deleted') || '';
+          const publisher = card.getAttribute('publisher') || null;
+          const language = card.getAttribute('language') || null;
+          const year = card.getAttribute('year') ? parseInt(card.getAttribute('year'), 10) : null;
+          const extension = card.getAttribute('extension') || 'pdf';
+          const filesize = card.getAttribute('filesize') || 'Unknown';
+          
+          const titleEl = card.querySelector('[slot="title"]');
+          const title = titleEl ? titleEl.textContent.trim() : '';
+          
+          const authorEl = card.querySelector('[slot="author"]');
+          const author = authorEl ? authorEl.textContent.trim() : null;
+          
+          const url = href ? `https://1lib.sk${href}` : '';
+          const downloadUrl = download ? `https://1lib.sk${download}` : '';
+          
+          if (deleted === '1' || !download) continue;
+          
+          if (title && url) {
+            items.push({
+              index: items.length + 1,
+              title,
+              author,
+              year,
+              language,
+              extension: extension.toUpperCase(),
+              size: filesize,
+              isbn,
+              publisher,
+              url,
+              downloadUrl,
+              href,
+              download
+            });
+          }
+        }
+        
+        return items;
+      }, maxResults);
+      
+      if (results.length === 0) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        return { results: [], download: null };
+      }
+      
+      console.log(`✅ Found ${results.length} results`);
+      
+      // Call the selection callback (keeps browser alive!)
+      const selectedIndex = await selectCallback(results);
+      
+      if (selectedIndex === null || selectedIndex === -1 || selectedIndex === undefined) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        return { results, download: null };
+      }
+      
+      // Get selected book
+      const selectedBook = results[selectedIndex];
+      if (!selectedBook) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error(`Invalid book index: ${selectedIndex}`);
+      }
+      
+      console.log(`📖 Selected: ${selectedBook.title}`);
+      
+      // Download using the SAME browser session
+      const finalTitle = selectedBook.title;
+      const sanitizedTitle = this.sanitizeFilename(finalTitle);
+      const identifier = selectedBook.isbn ? selectedBook.isbn.replace(/[-\s]/g, '') : `1lib_${Date.now()}`;
+      
+      const dirName = this.generateDirectoryName(sanitizedTitle, identifier);
+      const bookDir = path.join(outputDir, 'uploads', dirName);
+      
+      const dirResult = await ensureDirectory(bookDir, this.force, this.promptFn);
+      
+      if (!dirResult.created) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error('Operation cancelled: Directory already exists');
+      }
+      
+      if (dirResult.overwritten) {
+        console.log(`🔄 Overwritten existing directory: ${bookDir}`);
+      } else {
+        console.log(`📁 Created directory: ${bookDir}`);
+      }
+      
+      // Navigate to book page (same session!)
+      console.log(`🌐 Navigating to book page...`);
+      await page.goto(selectedBook.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      
+      console.log(`✅ On book page`);
+      
+      // Set up response listener to capture download URL
+      let downloadUrl = null;
+      const allResponses = [];
+      
+      page.on('response', async (response) => {
+        const url = response.url();
+        const contentType = response.headers()['content-type'] || '';
+        
+        // Log all responses for debugging
+        allResponses.push({ url, contentType });
+        
+        // Check for PDF/EPUB download (not fonts or other resources)
+        if ((contentType.includes('application/pdf') ||
+             contentType.includes('application/epub') ||
+             contentType.includes('application/octet-stream')) &&
+            !url.includes('.ttf') &&
+            !url.includes('.woff') &&
+            !url.includes('.css') &&
+            !url.includes('.js') &&
+            !url.includes('zlibicons')) {
+          if (url.includes('filename=') || url.endsWith('.pdf') || url.endsWith('.epub')) {
+            downloadUrl = url;
+            console.log(`📥 Detected download URL: ${url}`);
+          }
+        }
+      });
+      
+      console.log(`🖱️  Clicking download button...`);
+      
+      // Try to find and click the download button with multiple selectors
+      const clicked = await page.evaluate(() => {
+        // Try multiple selectors for the download button
+        const selectors = [
+          'a.addDownloadedBook[href^="/dl/"]',
+          'a[href^="/dl/"]',
+          'a.btn-primary[href^="/dl/"]',
+          'button.addDownloadedBook',
+          '.download-button',
+          '[data-action="download"]'
+        ];
+        
+        for (const selector of selectors) {
+          const downloadBtn = document.querySelector(selector);
+          if (downloadBtn) {
+            const href = downloadBtn.getAttribute('href') || downloadBtn.getAttribute('data-href');
+            try {
+              downloadBtn.click();
+              return { clicked: true, href, selector };
+            } catch (e) {
+              continue;
+            }
+          }
+        }
+        
+        // If no button found, return debug info
+        const allLinks = Array.from(document.querySelectorAll('a')).map(a => ({
+          href: a.getAttribute('href'),
+          text: a.textContent.trim().substring(0, 50),
+          classes: a.className
+        }));
+        
+        return { clicked: false, allLinks };
+      });
+      
+      if (!clicked.clicked) {
+        // Save debug HTML for inspection
+        const debugHtml = await page.content();
+        const debugPath = path.join(bookDir, 'debug-book-page.html');
+        await fsp.writeFile(debugPath, debugHtml, 'utf8');
+        
+        console.error(`❌ Download button not found on book page`);
+        console.error(`   Debug HTML saved to: ${debugPath}`);
+        console.error(`   Found ${clicked.allLinks?.length || 0} links on page`);
+        if (clicked.allLinks && clicked.allLinks.length > 0) {
+          console.error(`   First 5 links:`);
+          clicked.allLinks.slice(0, 5).forEach(link => {
+            console.error(`   - ${link.href} (${link.text})`);
+          });
+        }
+        
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error('Download button not found');
+      }
+      
+      console.log(`✅ Clicked button with href: ${clicked.href}`);
+      console.log(`⏳ Waiting for download URL (up to 30s)...`);
+      
+      // Wait for download URL to be captured
+      const maxWait = 30000;
+      const startTime = Date.now();
+      while (!downloadUrl && (Date.now() - startTime) < maxWait) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Log progress every 5 seconds
+        if ((Date.now() - startTime) % 5000 < 500) {
+          console.log(`   ⏱️  Waiting... (${Math.floor((Date.now() - startTime) / 1000)}s, captured ${allResponses.length} responses)`);
+        }
+      }
+      
+      if (!downloadUrl) {
+        console.error(`❌ Could not capture download URL after ${allResponses.length} responses`);
+        console.error(`   Last 5 responses:`);
+        allResponses.slice(-5).forEach(r => {
+          console.error(`   - ${r.url} (${r.contentType})`);
+        });
+        
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error('Could not capture download URL');
+      }
+      
+      console.log(`✅ Got download URL: ${downloadUrl}`);
+      console.log(`📥 Downloading file...`);
+      
+      // Get cookies for fetch
+      const cookies = await page.cookies();
+      const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      
+      // Download using fetch with session cookies
+      const response = await fetch(downloadUrl, {
+        headers: {
+          'Cookie': cookieString,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Referer': selectedBook.url,
+          'Accept': 'application/pdf,application/epub+zip,application/octet-stream,*/*'
+        },
+        redirect: 'follow'
+      });
+      
+      if (!response.ok) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+      console.log(`📊 File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
+      
+      // Download with progress
+      const chunks = [];
+      let downloadedBytes = 0;
+      let lastPercent = 0;
+      
+      for await (const chunk of response.body) {
+        chunks.push(chunk);
+        downloadedBytes += chunk.length;
+        
+        if (contentLength > 0) {
+          const percent = Math.floor((downloadedBytes / contentLength) * 100);
+          if (percent >= lastPercent + 10) {
+            console.log(`   📥 Progress: ${percent}%`);
+            lastPercent = percent;
+          }
+        }
+      }
+      
+      const buffer = Buffer.concat(chunks);
+      console.log(`✅ Download complete: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+      
+      // Determine extension
+      const contentType = response.headers.get('content-type') || '';
+      let ext = '.pdf';
+      if (contentType.includes('epub') || downloadUrl.toLowerCase().includes('.epub')) {
+        ext = '.epub';
+      }
+      
+      const filename = `${sanitizedTitle}${ext}`;
+      const filepath = path.join(bookDir, filename);
+      
+      await fsp.writeFile(filepath, buffer);
+      console.log(`✅ Saved: ${filepath}`);
+      
+      await browser.close();
+      await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+      
+      return {
+        results,
+        download: {
+          filepath,
+          directory: bookDir,
+          filename,
+          title: finalTitle,
+          identifier,
+          format: ext.replace('.', ''),
+          converted: false
+        }
+      };
+      
+    } catch (error) {
+      await browser.close();
+      await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+      throw new Error(`Failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Download a book from 1lib.sk
+   *
+   * NOTE: This method creates a new browser session. For better reliability,
+   * use search1libAndDownload() which keeps the session alive.
+   *
+   * @param {string} bookUrl - The book page URL from search results
+   * @param {string} outputDir - Directory to save the downloaded file (default: '.')
+   * @param {string} bookTitle - Book title for directory naming
+   * @param {string} downloadUrl - Optional: Direct download URL from search results
+   * @returns {Promise<Object>} Download result with filepath, directory, etc.
+   */
+  async downloadFrom1lib(bookUrl, outputDir = '.', bookTitle = null, downloadUrl = null) {
+    if (!this.enableProxy || !this.proxyUrl) {
+      throw new Error('Proxy configuration is required for 1lib.sk downloads');
+    }
+
+    console.log(`📚 Downloading from 1lib.sk...`);
+    if (downloadUrl) {
+      console.log(`🔗 Using download URL from search results`);
+    } else {
+      console.log(`🌐 Book URL: ${bookUrl}`);
+    }
+    
+    // Set up proxy for download
+    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+    const proxyUrlObj = new URL(this.proxyUrl);
+    const proxyHost = proxyUrlObj.hostname;
+    const proxyPort = parseInt(proxyUrlObj.port) || 80;
+    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    const proxyPassword = this.proxyPassword;
+    
+    console.log(`🔒 Using proxy session ${sessionId}`);
+    
+    const userDataDir = `./puppeteer_1lib_download_${sessionId}_${Date.now()}`;
+    
+    const browser = await puppeteer.launch({
+      headless: this.headless,
+      args: [
+        `--proxy-server=${proxyHost}:${proxyPort}`,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+      ],
+      userDataDir,
+      defaultViewport: { width: 1200, height: 800 },
+    });
+    
+    try {
+      const page = await browser.newPage();
+      
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+      );
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+      });
+      
+      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      
+      // Navigate to book page
+      console.log(`🌐 Navigating to book page...`);
+      await page.goto(bookUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      
+      // Wait for page to load
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Extract book metadata from the page
+      const bookInfo = await page.evaluate(() => {
+        // Try to find title
+        const titleEl = document.querySelector('h1, .book-title, [itemprop="name"]');
+        const title = titleEl ? titleEl.textContent.trim() : '';
+        
+        // Try to find author
+        const authorEl = document.querySelector('.authors, .book-author, [itemprop="author"]');
+        const author = authorEl ? authorEl.textContent.trim() : null;
+        
+        // Try to find ISBN
+        const isbnEl = document.querySelector('.property_isbn, [itemprop="isbn"]');
+        const isbn = isbnEl ? isbnEl.textContent.trim() : null;
+        
+        return { title, author, isbn };
+      });
+      
+      console.log(`📖 Book: ${bookInfo.title}`);
+      if (bookInfo.author) {
+        console.log(`✍️  Author: ${bookInfo.author}`);
+      }
+      
+      // Use provided title or extracted title
+      const finalTitle = bookTitle || bookInfo.title || 'unknown_book';
+      const sanitizedTitle = this.sanitizeFilename(finalTitle);
+      
+      // Generate unique identifier (use ISBN if available, otherwise timestamp)
+      const identifier = bookInfo.isbn ? bookInfo.isbn.replace(/[-\s]/g, '') : `1lib_${Date.now()}`;
+      
+      // Create directory
+      const dirName = this.generateDirectoryName(sanitizedTitle, identifier);
+      const bookDir = path.join(outputDir, 'uploads', dirName);
+      
+      // Check for existing directory and handle overwrite protection
+      const dirResult = await ensureDirectory(bookDir, this.force, this.promptFn);
+      
+      if (!dirResult.created) {
+        console.log(`⏭️  Skipped: Directory already exists and user chose not to overwrite`);
+        await browser.close();
+        throw new Error('Operation cancelled: Directory already exists');
+      }
+      
+      if (dirResult.overwritten) {
+        console.log(`🔄 Overwritten existing directory: ${bookDir}`);
+      } else {
+        console.log(`📁 Created directory: ${bookDir}`);
+      }
+      
+      // Look for download button and navigate to it with Puppeteer
+      console.log(`🔍 Looking for download button...`);
+      
+      // Get the download link from the button
+      const downloadLink = await page.evaluate(() => {
+        const downloadBtn = document.querySelector('a.addDownloadedBook[href^="/dl/"]');
+        return downloadBtn ? downloadBtn.getAttribute('href') : null;
+      });
+      
+      if (!downloadLink) {
+        throw new Error('Could not find download button on page');
+      }
+      
+      const dlUrl = downloadLink.startsWith('http')
+        ? downloadLink
+        : `https://1lib.sk${downloadLink}`;
+      
+      console.log(`✅ Found download link: ${dlUrl}`);
+      console.log(`🌐 Navigating to download page...`);
+      
+      // Navigate to download URL with Puppeteer (maintains session)
+      const response = await page.goto(dlUrl, {
+        waitUntil: 'networkidle0',
+        timeout: 60000
+      });
+      
+      // Check if we got redirected to an error page
+      const finalUrl = page.url();
+      if (finalUrl.includes('wrongHash') || finalUrl === 'https://1lib.sk//') {
+        throw new Error('Download link expired or invalid. The book page may need to be refreshed.');
+      }
+      
+      console.log(`✅ Download page loaded: ${finalUrl}`);
+      
+      // Get the response buffer
+      const buffer = await response.buffer();
+      
+      if (!buffer || buffer.length < 1000) {
+        throw new Error(`Downloaded file is too small (${buffer.length} bytes). This might be an error page.`);
+      }
+      
+      console.log(`✅ Download complete: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+      
+      // Determine file extension from content-type or URL
+      const contentType = response.headers.get('content-type') || '';
+      let ext = '.pdf';
+      if (contentType.includes('epub')) {
+        ext = '.epub';
+      } else if (downloadUrl.toLowerCase().includes('.epub')) {
+        ext = '.epub';
+      }
+      
+      const filename = `${sanitizedTitle}${ext}`;
+      const filepath = path.join(bookDir, filename);
+      
+      await fsp.writeFile(filepath, buffer);
+      console.log(`✅ Saved: ${filepath}`);
+      console.log(`📖 File size: ${(buffer.byteLength / 1024 / 1024).toFixed(2)} MB`);
+      
+      await browser.close();
+      
+      // Clean up browser profile
+      try {
+        await fsp.rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+      
+      return {
+        filepath,
+        originalPath: filepath,
+        directory: bookDir,
+        filename: path.basename(filepath),
+        originalFilename: filename,
+        title: finalTitle,
+        identifier: identifier,
+        format: ext.replace('.', ''),
+        converted: false
+      };
+      
+    } catch (error) {
+      await browser.close();
+      
+      // Clean up browser profile
+      try {
+        await fsp.rm(userDataDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        // Ignore cleanup errors
+      }
+      
+      throw new Error(`Failed to download from 1lib.sk: ${error.message}`);
+    }
+  }
+
+  /**
    * Check if a string is a real ISBN (10 or 13 digits) vs Amazon ASIN
    * Real ISBNs are numeric and 10 or 13 digits long
    * Amazon ASINs are alphanumeric and typically 10 characters

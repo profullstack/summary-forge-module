@@ -140,24 +140,46 @@ summary file /path/to/book.pdf -f
 ### Search by Title
 
 ```bash
-# Direct title search (uses Amazon/Rainforest API)
+# Search for books (defaults to 1lib.sk - faster, no DDoS protection)
+summary search "LLM Fine Tuning"
+summary search "JavaScript" --max-results 5 --extensions pdf,epub
+summary search "Python" --year-from 2020 --year-to 2024
+summary search "Machine Learning" --languages english --order date
+
+# Use Anna's Archive instead (has DDoS protection, slower)
+summary search "Clean Code" --source anna
+summary search "Rare Book" --source anna --sources zlib,lgli
+
+# Title search (shortcut for search command)
 summary title "A Philosophy of Software Design"
+summary title "Clean Code" --force  # Auto-select first result
+summary title "Python" --source anna  # Use Anna's Archive
 
-# Search Anna's Archive directly (bypasses Amazon/Rainforest API)
-summary search "Clean Code"
-summary search "JavaScript" --max-results 5 --format epub
-summary search "Python" --sort date
-summary search "LLM Fine Tuning" --language en
-summary search "Machine Learning" --format pdf,epub --language en,es
-summary search "Rare Book" --sources zlib,lgli  # Limit to specific sources
+# ISBN lookup (defaults to 1lib.sk)
+summary isbn 9780134685991
+summary isbn B075HYVHWK --force  # Auto-select and process
+summary isbn 9780134685991 --source anna  # Use Anna's Archive
 
-# Options:
-#   -n, --max-results <number>  Maximum results to display (default: 10)
-#   -f, --format <format>       Filter by format: pdf, epub, pdf,epub, or all (default: pdf)
-#   -s, --sort <sort>           Sort by: date (newest) or empty for relevance (default: '')
-#   -l, --language <language>   Language code(s), comma-separated (e.g., en, es, fr) (default: en)
-#   --sources <sources>         Data sources, comma-separated (default: all sources)
-#                               Options: zlib, lgli, lgrs, and others
+# Common Options:
+#   --source <source>              Search source: zlib (1lib.sk, default) or anna (Anna's Archive)
+#   -n, --max-results <number>     Maximum results to display (default: 10)
+#   -f, --force                    Auto-select first result and process immediately
+#
+# 1lib.sk Options (--source zlib, default):
+#   --year-from <year>             Filter by publication year from (e.g., 2020)
+#   --year-to <year>               Filter by publication year to (e.g., 2024)
+#   -l, --languages <languages>    Language filter, comma-separated (default: english)
+#   -e, --extensions <extensions>  File extensions, comma-separated (case-insensitive, default: PDF)
+#   --content-types <types>        Content types, comma-separated (default: book)
+#   -s, --order <order>            Sort order: date (newest) or empty for relevance
+#   --view <view>                  View type: list or grid (default: list)
+#
+# Anna's Archive Options (--source anna):
+#   -f, --format <format>          Filter by format: pdf, epub, pdf,epub, or all (default: pdf)
+#   -s, --sort <sort>              Sort by: date (newest) or empty for relevance (default: '')
+#   -l, --language <language>      Language code(s), comma-separated (e.g., en, es, fr) (default: en)
+#   --sources <sources>            Data sources, comma-separated (default: all sources)
+#                                  Options: zlib, lgli, lgrs, and others
 ```
 
 ### Look up by ISBN/ASIN
@@ -304,6 +326,69 @@ if (results.length > 0) {
   console.log('Downloaded:', download.filepath);
 }
 ```
+
+#### Using 1lib.sk Search (Faster, No DDoS Protection)
+
+```javascript
+const forge = new SummaryForge({
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  enableProxy: true,
+  proxyUrl: process.env.PROXY_URL,
+  proxyUsername: process.env.PROXY_USERNAME,
+  proxyPassword: process.env.PROXY_PASSWORD
+});
+
+// Basic search
+const results = await forge.search1lib('LLM Fine Tuning', {
+  maxResults: 10,
+  yearFrom: 2020,
+  languages: ['english'],
+  extensions: ['PDF']
+});
+
+// Advanced search with filters
+const advancedResults = await forge.search1lib('JavaScript', {
+  maxResults: 10,
+  yearFrom: 2020,
+  yearTo: 2024,
+  languages: ['english', 'spanish'],
+  extensions: ['PDF', 'EPUB'],
+  contentTypes: ['book'],
+  order: 'date'  // Sort by newest
+});
+
+console.log('Found:', results.map(r => ({
+  title: r.title,
+  author: r.author,
+  year: r.year,
+  extension: r.extension,
+  size: r.size,
+  language: r.language,
+  isbn: r.isbn,
+  url: r.url
+})));
+
+// Download the first result
+if (results.length > 0) {
+  const download = await forge.downloadFrom1lib(results[0].url, '.', results[0].title);
+  console.log('Downloaded:', download.filepath);
+  
+  // Process the downloaded book
+  const result = await forge.processFile(download.filepath, download.identifier);
+  console.log('Summary created:', result.archive);
+}
+```
+
+**Enhanced Error Handling:**
+
+The 1lib.sk download functionality includes robust error handling with automatic debugging:
+
+- **Multiple Selector Fallbacks**: Tries 6 different selectors to find download buttons
+- **Debug HTML Capture**: Saves page HTML when download button isn't found
+- **Link Analysis**: Lists all links on the page for troubleshooting
+- **Detailed Error Messages**: Provides actionable information for debugging
+
+If a download fails, check the `debug-book-page.html` file in the book's directory for detailed page structure information.
 
 ### API Reference
 
@@ -629,6 +714,56 @@ See the [`examples/`](examples/) directory for more usage examples:
 - [`programmatic-usage.js`](examples/programmatic-usage.js) - Using as a module
 
 ## Troubleshooting
+
+### Download Button Not Found (1lib.sk)
+
+If you encounter "Download button not found" errors when downloading from 1lib.sk:
+
+1. **Check Debug Files**: The tool automatically saves `debug-book-page.html` in the book's directory
+   - Open this file to inspect the actual page structure
+   - Look for download links or buttons that might have different selectors
+
+2. **Review Error Output**: The error message includes:
+   - All selectors that were tried
+   - List of links found on the page
+   - Location of the debug HTML file
+
+3. **Common Causes**:
+   - **Z-Access/Library Access Page**: Book page redirects to authentication page (most common)
+   - Page structure changed (1lib.sk updates their site)
+   - Book is deleted or unavailable
+   - Session expired or cookies not maintained
+   - Proxy issues preventing proper page load
+
+4. **Solutions**:
+   - **Recommended**: Use Anna's Archive instead: `summary search "book title" --source anna`
+   - Try the `search1lib` command separately to verify the book exists
+   - Check if the book page loads correctly in a regular browser with the same proxy
+   - Verify proxy configuration is working correctly
+   - Try a different book from search results
+
+5. **Known Issue - Z-Access Page**:
+   If you see links to `library-access.sk` or `Z-Access page` in the debug output, this means:
+   - The book page requires authentication or special access
+   - 1lib.sk's session management is blocking automated access
+   - **Workaround**: Use Anna's Archive which has better automation support
+
+**Example Debug Output (Z-Access Issue):**
+```
+❌ Download button not found on book page
+   Debug HTML saved to: ./uploads/book_name/debug-book-page.html
+   Found 6 links on page
+   First 5 links:
+   - https://library-access.sk (Z-Access page)
+   - mailto:blackbox@z-library.so (blackbox@z-library.so)
+   - https://www.reddit.com/r/zlibrary (https://www.reddit.com/r/zlibrary)
+```
+
+**Recommended Alternative:**
+```bash
+# Use Anna's Archive instead (more reliable for automation)
+summary search "prompt engineering" --source anna
+```
 
 ### IP Bans from Anna's Archive
 
