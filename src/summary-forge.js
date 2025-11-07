@@ -1337,7 +1337,7 @@ export class SummaryForge {
       console.log(`✅ Clicked button with href: ${clicked.href}`);
       console.log(`⏳ Waiting for download URL (up to 30s)...`);
       
-      // Wait for download URL to be captured
+      // Wait for download URL to be captured by response listener
       const maxWait = 30000;
       const startTime = Date.now();
       while (!downloadUrl && (Date.now() - startTime) < maxWait) {
@@ -1345,16 +1345,13 @@ export class SummaryForge {
         
         // Log progress every 5 seconds
         if ((Date.now() - startTime) % 5000 < 500) {
-          console.log(`   ⏱️  Waiting... (${Math.floor((Date.now() - startTime) / 1000)}s, captured ${allResponses.length} responses)`);
+          console.log(`   ⏱️  Waiting... (${Math.floor((Date.now() - startTime) / 1000)}s)`);
         }
       }
       
       if (!downloadUrl) {
-        console.error(`❌ Could not capture download URL after ${allResponses.length} responses`);
-        console.error(`   Last 5 responses:`);
-        allResponses.slice(-5).forEach(r => {
-          console.error(`   - ${r.url} (${r.contentType})`);
-        });
+        console.error(`❌ Could not capture download URL`);
+        console.error(`   The download may have been blocked or the link expired`);
         
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
@@ -1362,64 +1359,104 @@ export class SummaryForge {
       }
       
       console.log(`✅ Got download URL: ${downloadUrl}`);
-      console.log(`📥 Downloading file...`);
+      console.log(`📥 Downloading file with retry logic...`);
       
-      // Get cookies for fetch
+      // Get cookies for authenticated download
       const cookies = await page.cookies();
       const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
       
-      // Download using fetch with session cookies
-      const response = await fetch(downloadUrl, {
-        headers: {
-          'Cookie': cookieString,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Referer': selectedBook.url,
-          'Accept': 'application/pdf,application/epub+zip,application/octet-stream,*/*'
-        },
-        redirect: 'follow'
-      });
+      // Download with retry logic for rate limiting
+      let downloadBuffer = null;
+      let retryCount = 0;
+      const maxRetries = 3;
       
-      if (!response.ok) {
-        await browser.close();
-        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-      console.log(`📊 File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
-      
-      // Download with progress
-      const chunks = [];
-      let downloadedBytes = 0;
-      let lastPercent = 0;
-      
-      for await (const chunk of response.body) {
-        chunks.push(chunk);
-        downloadedBytes += chunk.length;
-        
-        if (contentLength > 0) {
-          const percent = Math.floor((downloadedBytes / contentLength) * 100);
-          if (percent >= lastPercent + 10) {
-            console.log(`   📥 Progress: ${percent}%`);
-            lastPercent = percent;
+      while (retryCount <= maxRetries) {
+        try {
+          const response = await fetch(downloadUrl, {
+            headers: {
+              'Cookie': cookieString,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+              'Referer': selectedBook.url,
+              'Accept': 'application/pdf,application/epub+zip,application/octet-stream,*/*'
+            },
+            redirect: 'follow'
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          // Check if response is a rate limit error page
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.includes('text/html')) {
+            const text = await response.text();
+            if (text.includes('Too many requests') || text.includes('Err #ipd1')) {
+              const waitMatch = text.match(/wait (\d+) seconds/i);
+              const waitTime = waitMatch ? parseInt(waitMatch[1], 10) : 10;
+              
+              if (retryCount < maxRetries) {
+                console.log(`⏰ Rate limited. Waiting ${waitTime + 2} seconds before retry ${retryCount + 1}/${maxRetries}...`);
+                await new Promise(resolve => setTimeout(resolve, (waitTime + 2) * 1000));
+                retryCount++;
+                continue;
+              } else {
+                throw new Error(`Rate limited after ${maxRetries} retries. Please wait a few minutes and try again.`);
+              }
+            }
+          }
+          
+          // Get content length for progress tracking
+          const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+          console.log(`📊 File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
+          
+          // Download with progress
+          const chunks = [];
+          let downloadedBytes = 0;
+          let lastPercent = 0;
+          
+          for await (const chunk of response.body) {
+            chunks.push(chunk);
+            downloadedBytes += chunk.length;
+            
+            if (contentLength > 0) {
+              const percent = Math.floor((downloadedBytes / contentLength) * 100);
+              if (percent >= lastPercent + 10) {
+                console.log(`   📥 Progress: ${percent}%`);
+                lastPercent = percent;
+              }
+            }
+          }
+          
+          downloadBuffer = Buffer.concat(chunks);
+          console.log(`✅ Download complete: ${(downloadBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+          
+          // Success - break out of retry loop
+          break;
+          
+        } catch (fetchError) {
+          if (retryCount < maxRetries) {
+            console.log(`⚠️  Download failed, retrying in 5 seconds... (${retryCount + 1}/${maxRetries}): ${fetchError.message}`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            retryCount++;
+          } else {
+            throw fetchError;
           }
         }
       }
       
-      const buffer = Buffer.concat(chunks);
-      console.log(`✅ Download complete: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
-      
-      // Determine extension
-      const contentType = response.headers.get('content-type') || '';
-      let ext = '.pdf';
-      if (contentType.includes('epub') || downloadUrl.toLowerCase().includes('.epub')) {
-        ext = '.epub';
+      if (!downloadBuffer || downloadBuffer.length < 1000) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error(`Downloaded file is too small or empty (${downloadBuffer?.length || 0} bytes)`);
       }
+      
+      // Determine extension from content type or URL
+      const ext = downloadUrl.toLowerCase().includes('.epub') ? '.epub' : '.pdf';
       
       const filename = `${sanitizedTitle}${ext}`;
       const filepath = path.join(bookDir, filename);
       
-      await fsp.writeFile(filepath, buffer);
+      await fsp.writeFile(filepath, downloadBuffer);
       console.log(`✅ Saved: ${filepath}`);
       
       await browser.close();

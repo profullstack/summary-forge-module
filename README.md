@@ -715,6 +715,30 @@ See the [`examples/`](examples/) directory for more usage examples:
 
 ## Troubleshooting
 
+### Rate Limiting (1lib.sk)
+
+If you encounter "Too many requests" errors from 1lib.sk:
+
+**Error Message:**
+```
+Too many requests from your IP xxx.xxx.xxx.xxx
+Please wait 10 seconds. support@z-lib.fm. Err #ipd1
+```
+
+**Automatic Handling:**
+The tool automatically detects rate limiting and:
+- ✅ Waits the requested time (usually 10 seconds)
+- ✅ Retries up to 3 times with exponential backoff
+- ✅ Adds a 2-second buffer to ensure rate limit has cleared
+
+**Manual Solutions:**
+1. **Wait a few minutes** before trying again
+2. **Use a different proxy session** (the tool rotates through your proxy pool automatically)
+3. **Switch to Anna's Archive**: `summary search "book title" --source anna`
+4. **Reduce concurrent requests** if running multiple downloads
+
+**Note:** The proxy pool helps distribute requests across different IPs, reducing rate limiting issues.
+
 ### Download Button Not Found (1lib.sk)
 
 If you encounter "Download button not found" errors when downloading from 1lib.sk:
