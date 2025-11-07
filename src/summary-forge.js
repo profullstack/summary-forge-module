@@ -218,6 +218,68 @@ export class SummaryForge {
   }
 
   /**
+   * Download with automatic rate limit handling and retry logic
+   * @private
+   */
+  async downloadWithRetry(url, options = {}, maxRetries = 3) {
+    const {
+      headers = {},
+      redirect = 'follow'
+    } = options;
+    
+    let retryCount = 0;
+    
+    while (retryCount <= maxRetries) {
+      try {
+        const response = await fetch(url, {
+          headers,
+          redirect
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // Check if response is a rate limit error page
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/html')) {
+          // Peek at the response to check for rate limiting
+          const text = await response.text();
+          if (text.includes('Too many requests') || text.includes('Err #ipd1')) {
+            const waitMatch = text.match(/wait (\d+) seconds/i);
+            const waitTime = waitMatch ? parseInt(waitMatch[1], 10) : 10;
+            
+            if (retryCount < maxRetries) {
+              console.log(`⏰ Rate limited. Waiting ${waitTime + 2} seconds before retry ${retryCount + 1}/${maxRetries}...`);
+              await new Promise(resolve => setTimeout(resolve, (waitTime + 2) * 1000));
+              retryCount++;
+              continue;
+            } else {
+              throw new Error(`Rate limited after ${maxRetries} retries. Please wait a few minutes and try again.`);
+            }
+          }
+          // If it's HTML but not a rate limit error, it might be an error page
+          throw new Error('Received HTML response instead of file download');
+        }
+        
+        // Success - return the response
+        return response;
+        
+      } catch (fetchError) {
+        if (retryCount < maxRetries && !fetchError.message.includes('Rate limited')) {
+          console.log(`⚠️  Request failed, retrying in 5 seconds... (${retryCount + 1}/${maxRetries}): ${fetchError.message}`);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          retryCount++;
+        } else {
+          throw fetchError;
+        }
+      }
+    }
+    
+    throw new Error('Download failed after all retries');
+  }
+
+  /**
    * Wait for __ddg cookies to appear (DDoS-Guard clearance)
    */
   async waitForDdgCookies(page, timeout = 60000) {
