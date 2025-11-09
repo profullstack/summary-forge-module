@@ -337,6 +337,70 @@ program
   });
 
 program
+  .command('url <url>')
+  .description('Process a web page URL and generate summary')
+  .option('-f, --force', 'Overwrite existing directory without prompting')
+  .action(async (url, options) => {
+    try {
+      // Validate URL format
+      try {
+        new URL(url);
+      } catch (urlError) {
+        console.error(chalk.red(`\n❌ Invalid URL: ${url}`));
+        console.log(chalk.yellow('   Please provide a valid URL (e.g., https://example.com/article)\n'));
+        process.exit(1);
+      }
+      
+      const config = await loadConfig();
+      config.force = options.force || false;
+      
+      // Add prompt function for interactive mode
+      if (!config.force) {
+        config.promptFn = async (dirPath) => {
+          const { action } = await inquirer.prompt([
+            {
+              type: 'list',
+              name: 'action',
+              message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+              choices: [
+                { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+                { name: 'Skip (cancel operation)', value: 'skip' },
+                { name: 'Cancel', value: 'cancel' }
+              ]
+            }
+          ]);
+          return action;
+        };
+      }
+      
+      const spinner = ora('Fetching web page...').start();
+      const forge = new SummaryForge(config);
+      
+      try {
+        const result = await forge.processWebPage(url);
+        spinner.stop();
+        
+        console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+        console.log(chalk.blue(`📄 Page title: ${result.title}`));
+        console.log(chalk.cyan(`🔗 Source URL: ${result.url}`));
+        
+        // Display cost summary
+        console.log(chalk.blue('\n💰 Cost Summary:'));
+        console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
+        console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
+        console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
+        console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+      } catch (error) {
+        spinner.stop();
+        throw error;
+      }
+    } catch (error) {
+      console.error(chalk.red(`\n❌ Error: ${error.message}`));
+      process.exit(1);
+    }
+  });
+
+program
   .command('title <bookTitle...>')
   .description('Search 1lib.sk for a book by title (shortcut for search)')
   .option('-f, --force', 'Skip prompts: auto-select first result and process immediately')
@@ -838,6 +902,7 @@ program
           message: 'What would you like to do?',
           choices: [
             { name: '📄 Process a local file (PDF/EPUB)', value: 'file' },
+            { name: '🌐 Process a web page URL', value: 'url' },
             { name: '🔍 Search for a book by title', value: 'search' },
             { name: '🔢 Look up by ISBN/ASIN', value: 'isbn' },
             { name: '❌ Exit', value: 'exit' }
@@ -873,6 +938,44 @@ program
         console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
         console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
         console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+      } else if (mode === 'url') {
+        const { url } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'url',
+            message: 'Enter the web page URL:',
+            validate: (input) => {
+              try {
+                new URL(input);
+                return true;
+              } catch {
+                return 'Please enter a valid URL (e.g., https://example.com/article)';
+              }
+            }
+          }
+        ]);
+
+        const spinner = ora('Fetching web page...').start();
+        const forge = await createForge();
+        
+        try {
+          const result = await forge.processWebPage(url);
+          spinner.stop();
+          
+          console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+          console.log(chalk.blue(`📄 Page title: ${result.title}`));
+          console.log(chalk.cyan(`🔗 Source URL: ${result.url}`));
+          
+          // Display cost summary
+          console.log(chalk.blue('\n💰 Cost Summary:'));
+          console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
+          console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
+          console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
+          console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+        } catch (error) {
+          spinner.stop();
+          throw error;
+        }
       } else if (mode === 'search') {
         const { title } = await inquirer.prompt([
           {

@@ -6,7 +6,8 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 
 ## Features
 
-- 📚 **Multiple Input Formats**: Supports both PDF and EPUB files
+- 📚 **Multiple Input Formats**: Supports PDF, EPUB files, and web page URLs
+- 🌐 **Web Page Summarization**: Fetch and summarize any web page with automatic content extraction
 - 🤖 **AI-Powered Summaries**: Uses GPT-5 with direct PDF upload for better quality
 - 📊 **Vision API**: Preserves formatting, tables, diagrams, and images from PDFs
 - 🧩 **Intelligent Chunking**: Automatically processes large PDFs (500+ pages) without truncation
@@ -122,7 +123,8 @@ summary i
 ```
 
 This launches an interactive menu where you can:
-- Process local files
+- Process local files (PDF/EPUB)
+- Process web page URLs
 - Search for books by title
 - Look up books by ISBN/ASIN
 
@@ -136,6 +138,26 @@ summary file /path/to/book.epub
 summary file /path/to/book.pdf --force
 summary file /path/to/book.pdf -f
 ```
+
+### Process a Web Page URL
+
+```bash
+summary url https://example.com/article
+summary url https://blog.example.com/post/123
+
+# Force overwrite if directory already exists
+summary url https://example.com/article --force
+summary url https://example.com/article -f
+```
+
+**Features:**
+- Automatically fetches web page content using Puppeteer
+- Sanitizes HTML to remove navigation, ads, footers, and other non-content elements
+- Saves web page as PDF for processing
+- Generates clean title from page title or uses OpenAI to create one
+- Prompts specifically optimized for web page content (ignores nav/ads/footers)
+- Creates same output formats as book processing (MD, TXT, PDF, EPUB, MP3, flashcards)
+
 
 ### Search by Title
 
@@ -425,6 +447,18 @@ new SummaryForge({
 
 - `processFile(filePath)` - Process a PDF or EPUB file
   - Returns: `{ basename, markdown, files, archive, hasAudio }`
+
+- `processWebPage(url, outputDir)` - Process a web page URL
+  - Parameters:
+    - `url` (string) - URL of the web page to summarize
+    - `outputDir` (string, optional) - Directory to save outputs (default: '.')
+  - Returns: `{ basename, dirName, markdown, files, directory, archive, hasAudio, url, title, costs }`
+  - Features:
+    - Fetches web page with Puppeteer
+    - Sanitizes HTML to extract main content only
+    - Saves as PDF for processing
+    - Generates clean title (or uses OpenAI if needed)
+    - Uses web page-specific prompting (ignores nav/ads/footers)
 
 - `searchBookByTitle(title)` - Search Amazon for books using Rainforest API
   - Returns: Array of book results

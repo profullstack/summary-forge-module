@@ -18,6 +18,7 @@ import { PDFParse } from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize } from "./utils/pdf-chunker.js";
 import { ensureDirectory, getDirectoryContents } from "./utils/directory-protection.js";
+import { fetchWebPageAsPdf, generateCleanTitle } from "./utils/web-page.js";
 
 const API_MODEL = "gpt-5";
 
@@ -2887,6 +2888,248 @@ export class SummaryForge {
     console.log(`📚 Bundle contains: ${files.join(', ')}`);
     
     return archiveName;
+  }
+
+  /**
+   * Generate summary with custom system prompt for web pages
+   * @private
+   */
+  async generateWebPageSummary(pdfPath, pageTitle, url) {
+    console.log("📖 Processing web page PDF...");
+    
+    // Get file stats
+    const stats = await fsp.stat(pdfPath);
+    const pdfSizeKB = (stats.size / 1024).toFixed(2);
+    const pdfSizeMB = (stats.size / 1024 / 1024).toFixed(2);
+    console.log(`📊 PDF size: ${pdfSizeMB} MB (${pdfSizeKB} KB)`);
+    
+    // Try GPT-5 with file upload first
+    try {
+      console.log("🔄 Attempting GPT-5 with PDF file upload...");
+      
+      // Upload PDF file to OpenAI
+      const fileStream = fs.createReadStream(pdfPath);
+      const file = await this.openai.files.create({
+        file: fileStream,
+        purpose: 'user_data'
+      });
+      
+      console.log(`✅ PDF uploaded. File ID: ${file.id}`);
+      
+      const systemPrompt = [
+        "You are an expert technical writer. Produce a single, self-contained Markdown file.",
+        "Source: the attached PDF containing a web page. Focus on the MAIN CONTENT only.",
+        "IMPORTANT: Ignore navigation menus, headers, footers, advertisements, and sidebars.",
+        "Goal: Extract and summarize the core content of the web page.",
+        "Requirements:",
+        `- Title: "${pageTitle}" (from: ${url})`,
+        "- Organize by the actual content structure (sections, headings as they appear).",
+        "- Include: Main content sections, key points, important information.",
+        "- Keep all graphics as ASCII (code fences) for diagrams; preserve tables in Markdown.",
+        "- No external images or links.",
+        "- Write concisely but completely. Use headers, lists, and code-fenced ASCII diagrams.",
+        "- IMPORTANT: Add a 'Study Flashcards' section at the end with 20-30 Q&A pairs in this exact format:",
+        "  **Q: What is [concept]?**",
+        "  A: [Clear, concise answer in 1-3 sentences]",
+        "  ",
+        "  (blank line between each Q&A pair)",
+      ].join("\n");
+
+      const userPrompt = "Read the attached PDF (web page content) and produce the full Markdown summary described above. Focus on the main content and ignore navigation/ads/footers. Output ONLY Markdown content (no JSON, no preambles).";
+
+      console.log("🧠 Asking GPT-5 to generate summary from web page PDF...");
+      
+      const resp = await this.openai.chat.completions.create({
+        model: API_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: [
+              { type: "file", file: { file_id: file.id } },
+              { type: "text", text: userPrompt }
+            ]
+          }
+        ],
+        max_completion_tokens: this.maxTokens,
+      });
+
+      // Track OpenAI costs
+      if (resp.usage) {
+        const cost = this.trackOpenAICost(resp.usage);
+        console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
+        console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+      }
+
+      // Clean up uploaded file
+      try {
+        await this.openai.files.del(file.id);
+        console.log(`🗑️  Cleaned up uploaded file`);
+      } catch (cleanupError) {
+        console.log(`⚠️  Warning: Could not delete uploaded file: ${cleanupError.message}`);
+      }
+
+      const md = resp.choices[0]?.message?.content ?? "";
+      if (!md || md.trim().length < 200) {
+        throw new Error("Model returned unexpectedly short content");
+      }
+
+      console.log("✅ Successfully generated summary using GPT-5 with web page PDF");
+      return md;
+      
+    } catch (fileUploadError) {
+      console.error(`⚠️  GPT-5 PDF file upload failed: ${fileUploadError.message}`);
+      throw new Error(`Failed to generate web page summary: ${fileUploadError.message}`);
+    }
+  }
+
+  /**
+   * Process a web page URL and generate summary
+   *
+   * @param {string} url - URL of the web page to summarize
+   * @param {string} outputDir - Directory to save outputs (default: '.')
+   * @returns {Promise<Object>} Result with files, directory, archive, etc.
+   */
+  async processWebPage(url, outputDir = '.') {
+    console.log(`🌐 Processing web page: ${url}`);
+    
+    // Fetch web page and save as PDF
+    const webPageResult = await fetchWebPageAsPdf(url, null, {
+      headless: this.headless,
+      proxyUrl: this.enableProxy ? this.proxyUrl : null,
+      proxyUsername: this.enableProxy ? this.proxyUsername : null,
+      proxyPassword: this.enableProxy ? this.proxyPassword : null
+    });
+    
+    const { title: rawTitle, pdfPath: tempPdfPath, url: pageUrl } = webPageResult;
+    
+    // Generate clean title
+    const cleanTitle = generateCleanTitle(rawTitle, url);
+    console.log(`📄 Clean title: ${cleanTitle}`);
+    
+    // Generate title using OpenAI if it's too generic
+    let finalTitle = cleanTitle;
+    if (cleanTitle.length < 10 || cleanTitle.toLowerCase().includes('webpage')) {
+      console.log("🤖 Generating better title using OpenAI...");
+      try {
+        const titleResp = await this.openai.chat.completions.create({
+          model: API_MODEL,
+          messages: [
+            {
+              role: "system",
+              content: "Generate a concise, descriptive title (max 60 chars) for this web page based on its content. Output ONLY the title, no quotes or extra text."
+            },
+            {
+              role: "user",
+              content: `Web page URL: ${url}\nOriginal title: ${rawTitle}\n\nGenerate a better title.`
+            }
+          ],
+          max_completion_tokens: 100,
+        });
+        
+        const generatedTitle = titleResp.choices[0]?.message?.content?.trim();
+        if (generatedTitle && generatedTitle.length > 3) {
+          finalTitle = generatedTitle;
+          console.log(`✅ Generated title: ${finalTitle}`);
+          
+          if (titleResp.usage) {
+            this.trackOpenAICost(titleResp.usage);
+          }
+        }
+      } catch (titleError) {
+        console.log(`⚠️  Title generation failed, using: ${cleanTitle}`);
+      }
+    }
+    
+    // Create directory structure
+    const sanitizedTitle = this.sanitizeFilename(finalTitle);
+    const identifier = `web_${Date.now()}`;
+    const dirName = this.generateDirectoryName(sanitizedTitle, identifier);
+    const webPageDir = path.join(outputDir, 'uploads', dirName);
+    
+    // Check for existing directory and handle overwrite protection
+    const dirResult = await ensureDirectory(webPageDir, this.force, this.promptFn);
+    
+    if (!dirResult.created) {
+      console.log(`⏭️  Skipped: Directory already exists and user chose not to overwrite`);
+      throw new Error('Operation cancelled: Directory already exists');
+    }
+    
+    if (dirResult.overwritten) {
+      console.log(`🔄 Overwritten existing directory: ${webPageDir}`);
+    } else {
+      console.log(`📁 Created directory: ${webPageDir}`);
+    }
+    
+    // Move PDF to final location
+    const pdfPath = path.join(webPageDir, `${sanitizedTitle}.pdf`);
+    await fsp.rename(tempPdfPath, pdfPath);
+    console.log(`✅ Saved PDF: ${pdfPath}`);
+    
+    // Generate summary using web page-specific prompting
+    const markdown = await this.generateWebPageSummary(pdfPath, finalTitle, url);
+    
+    // Generate output files
+    const outputs = await this.generateOutputFiles(markdown, sanitizedTitle, webPageDir);
+    
+    // Create file list for archive
+    const files = [
+      pdfPath,
+      outputs.summaryMd,
+      outputs.summaryTxt,
+      outputs.summaryPdf,
+      outputs.summaryEpub
+    ];
+    
+    // Add audio script to list if it was generated
+    if (outputs.audioScript) {
+      files.push(outputs.audioScript);
+    }
+    
+    // Add audio file to list if it was generated
+    if (outputs.summaryMp3) {
+      files.push(outputs.summaryMp3);
+    }
+    
+    // Add flashcards files to list if they were generated
+    if (outputs.flashcardsMd) {
+      files.push(outputs.flashcardsMd);
+    }
+    if (outputs.flashcardsPdf) {
+      files.push(outputs.flashcardsPdf);
+    }
+    
+    const archiveName = path.join(webPageDir, `${dirName}_bundle.tgz`);
+    
+    // Change to web page directory for tar to create relative paths
+    const originalCwd = process.cwd();
+    process.chdir(webPageDir);
+    
+    try {
+      // Create bundle with relative paths
+      const relativeFiles = files.map(f => path.basename(f));
+      await this.sh("tar", ["-czvf", path.basename(archiveName), ...relativeFiles]);
+      console.log(`\n✅ Done: ${archiveName}\n`);
+      console.log(`📚 Bundle contains: ${relativeFiles.join(', ')}`);
+    } finally {
+      process.chdir(originalCwd);
+    }
+    
+    // Play terminal beep to signal completion
+    process.stdout.write('\x07');
+    
+    return {
+      basename: sanitizedTitle,
+      dirName,
+      markdown,
+      files,
+      directory: webPageDir,
+      archive: archiveName,
+      hasAudio: !!outputs.summaryMp3,
+      url: pageUrl,
+      title: finalTitle,
+      costs: this.getCostSummary()
+    };
   }
 
   /**
