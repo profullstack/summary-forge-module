@@ -18,11 +18,11 @@
 
 ## 📋 REMAINING TASKS
 
-### Task 4: Update Existing Methods with JSON Wrappers
+### Task 4: Update Existing Methods with JSON Wrappers ✓
 **Approach:** Add JSON return wrappers to existing methods in `src/summary-forge.js`
 **Benefit:** Fastest path to JSON API without full modularization
 **Estimated Time:** 4-6 hours
-**Status:** 🔄 In Progress (60% complete)
+**Status:** ✅ COMPLETE (100%)
 
 #### Subtasks:
 - [x] 4a: Wrap `getCostSummary()` ✅
@@ -33,16 +33,16 @@
 - [x] 4f: Wrap `downloadFrom1lib()` ✅
 - [x] 4g: Wrap `downloadFromAnnasArchive()` ✅
 - [x] 4h: Wrap `convertEpubToPdf()` ✅
-- [ ] 4i: Wrap `generateSummary()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
-- [ ] 4j: Wrap `generateWebPageSummary()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
-- [ ] 4k: Wrap `generateAudioScript()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
-- [ ] 4l: Wrap `generateAudio()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
-- [ ] 4m: Wrap `generateOutputFiles()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
-- [ ] 4n: Wrap `processFile()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
-- [ ] 4o: Wrap `processWebPage()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
-- [ ] 4p: Wrap `createBundle()` (See JSON_WRAPPER_COMPLETION_GUIDE.md)
+- [x] 4i: Wrap `generateSummary()` ✅
+- [x] 4j: Wrap `generateWebPageSummary()` ✅
+- [x] 4k: Wrap `generateAudioScript()` ✅
+- [x] 4l: Wrap `generateAudio()` ✅
+- [x] 4m: Wrap `generateOutputFiles()` ✅
+- [x] 4n: Wrap `processFile()` ✅
+- [x] 4o: Wrap `processWebPage()` ✅
+- [x] 4p: Wrap `createBundle()` ✅
 
-**Note:** A detailed completion guide has been created at `JSON_WRAPPER_COMPLETION_GUIDE.md` with exact line numbers and code changes for the remaining methods.
+**Result:** All 16 methods in SummaryForge class now return consistent JSON objects with `{ success, ...data, error?, message? }` format.
 
 ### Task 5: Update Tests
 **Estimated Time:** 2-3 hours
@@ -79,21 +79,27 @@
 
 ## 📊 PROGRESS TRACKING
 
-**Current:** 3.6/7 tasks complete (51%)
-**Remaining:** 3.4 tasks
+**Current:** 4/7 tasks complete (57%)
+**Remaining:** 3 tasks
 **Estimated Total Time:** 8-13 hours
 
 ### Detailed Progress:
 - ✅ Task 1: Config Utilities (100%)
 - ✅ Task 2: Flashcards Module (100%)
 - ✅ Task 3: Documentation (100%)
-- 🔄 Task 4: JSON Wrappers (60% - 8/16 methods complete)
+- ✅ Task 4: JSON Wrappers (100% - 16/16 methods complete) ⬅️ **JUST COMPLETED**
 - ⏳ Task 5: Update Tests (0%)
 - ⏳ Task 6: Update Documentation (0%)
 - ⏳ Task 7: Verification (0%)
 
 ## 🚀 NEXT IMMEDIATE STEP
 
-Start with Task 4a-4p: Add JSON wrappers to existing methods in `src/summary-forge.js`
+✅ Task 4 is now COMPLETE! All 16 methods in `src/summary-forge.js` now return JSON.
 
-This can be done one method at a time, making it manageable and allowing for incremental progress.
+**Next:** Start Task 5 - Update tests to work with new JSON return format.
+
+Focus on:
+1. Update `test/summary-forge.test.js` to check for `success` field
+2. Update `test/config.test.js` (already done)
+3. Update `test/flashcards.test.js` (already done)
+4. Add new tests for error cases

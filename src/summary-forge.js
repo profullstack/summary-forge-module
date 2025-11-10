@@ -2420,6 +2420,7 @@ export class SummaryForge {
 
   /**
    * Generate summary using GPT-5 with PDF file upload (with fallback to chunked text extraction)
+   * Returns JSON object with summary result
    */
   async generateSummary(pdfPath) {
     console.log("📖 Processing PDF...");
@@ -2501,7 +2502,13 @@ export class SummaryForge {
       }
 
       console.log("✅ Successfully generated summary using GPT-5 with PDF file");
-      return md;
+      return {
+        success: true,
+        markdown: md,
+        length: md.length,
+        method: 'gpt5_pdf_upload',
+        message: 'Successfully generated summary using GPT-5 with PDF file'
+      };
       
     } catch (fileUploadError) {
       // Log the file upload error
@@ -2579,7 +2586,13 @@ export class SummaryForge {
           }
 
           console.log("✅ Successfully generated summary using text extraction");
-          return md;
+          return {
+            success: true,
+            markdown: md,
+            length: md.length,
+            method: 'text_extraction_single',
+            message: 'Successfully generated summary using text extraction'
+          };
         }
         
         // Large PDF - use intelligent chunking
@@ -2635,11 +2648,24 @@ export class SummaryForge {
         console.log(`📊 Final summary: ${finalSummary.length.toLocaleString()} characters`);
         console.log("⚠️  Note: Images/diagrams from PDF were not included (text-only extraction)");
         
-        return finalSummary;
+        return {
+          success: true,
+          markdown: finalSummary,
+          length: finalSummary.length,
+          method: 'text_extraction_chunked',
+          chunks: chunks.length,
+          message: 'Successfully generated comprehensive summary using intelligent chunking'
+        };
         
       } catch (textExtractionError) {
         console.error(`❌ Text extraction fallback failed: ${textExtractionError.message}`);
-        throw new Error(`Failed to generate summary: ${textExtractionError.message}`);
+        return {
+          success: false,
+          error: textExtractionError.message,
+          markdown: null,
+          length: 0,
+          method: 'failed'
+        };
       }
     }
   }
@@ -2647,6 +2673,7 @@ export class SummaryForge {
   /**
    * Generate audio-friendly script from markdown summary
    * Converts markdown to natural, conversational narration
+   * Returns JSON object with script result
    */
   async generateAudioScript(markdown) {
     console.log("🎙️  Generating audio-friendly narration script...");
@@ -2697,11 +2724,22 @@ export class SummaryForge {
       }
 
       console.log(`✅ Generated audio script: ${script.length} characters`);
-      return script;
+      return {
+        success: true,
+        script,
+        length: script.length,
+        message: 'Successfully generated audio script'
+      };
     } catch (error) {
       console.error(`⚠️  Failed to generate audio script: ${error.message}`);
       console.log("ℹ️  Falling back to sanitized markdown");
-      return this.sanitizeTextForAudio(markdown);
+      const fallbackScript = this.sanitizeTextForAudio(markdown);
+      return {
+        success: true,
+        script: fallbackScript,
+        length: fallbackScript.length,
+        message: 'Generated audio script using fallback sanitization'
+      };
     }
   }
 
@@ -2776,11 +2814,17 @@ export class SummaryForge {
 
   /**
    * Generate audio from text using ElevenLabs TTS with chunking and streaming
+   * Returns JSON object with audio generation result
    */
   async generateAudio(text, outputPath) {
     if (!this.elevenlabs) {
       console.log("ℹ️  Skipping audio generation (ElevenLabs API key not provided)");
-      return null;
+      return {
+        success: false,
+        error: 'ElevenLabs API key not provided',
+        path: null,
+        size: 0
+      };
     }
 
     console.log("🎙️  Generating audio with ElevenLabs TTS...");
@@ -2857,10 +2901,21 @@ export class SummaryForge {
       console.log(`✅ Generated audio: ${outputPath}`);
       console.log(`💰 ElevenLabs cost: $${cost.toFixed(4)}`);
       
-      return outputPath;
+      return {
+        success: true,
+        path: outputPath,
+        size: finalAudioBuffer.length,
+        duration: Math.ceil(textToConvert.length / 1000),
+        message: 'Successfully generated audio'
+      };
     } catch (error) {
       console.error(`⚠️  Failed to generate audio: ${error.message}`);
-      return null;
+      return {
+        success: false,
+        error: error.message,
+        path: null,
+        size: 0
+      };
     }
   }
 
@@ -2959,38 +3014,63 @@ export class SummaryForge {
     }
 
     return {
-      summaryMd,
-      summaryTxt,
-      summaryPdf,
-      summaryEpub,
-      audioScript: audioScriptPath,
-      summaryMp3: audioPath,
-      flashcardsMd: flashcardsMdPath,
-      flashcardsPdf: flashcardsPath
+      success: true,
+      files: {
+        summaryMd,
+        summaryTxt,
+        summaryPdf,
+        summaryEpub,
+        audioScript: audioScriptPath,
+        summaryMp3: audioPath,
+        flashcardsMd: flashcardsMdPath,
+        flashcardsPdf: flashcardsPath
+      },
+      message: 'Successfully generated all output files'
     };
   }
 
   /**
    * Create bundle archive
+   * Returns JSON object with bundle result
    */
   async createBundle(files, archiveName) {
     console.log("📦 Creating tar.gz bundle…");
     
-    for (const f of files) {
-      if (!(await this.fileExists(f))) {
-        throw new Error(`Missing expected output: ${f}`);
+    try {
+      for (const f of files) {
+        if (!(await this.fileExists(f))) {
+          return {
+            success: false,
+            error: `Missing expected output: ${f}`,
+            path: null,
+            files: 0
+          };
+        }
       }
-    }
 
-    await this.sh("tar", ["-czvf", archiveName, ...files]);
-    console.log(`\n✅ Done: ${archiveName}\n`);
-    console.log(`📚 Bundle contains: ${files.join(', ')}`);
-    
-    return archiveName;
+      await this.sh("tar", ["-czvf", archiveName, ...files]);
+      console.log(`\n✅ Done: ${archiveName}\n`);
+      console.log(`📚 Bundle contains: ${files.join(', ')}`);
+      
+      return {
+        success: true,
+        path: archiveName,
+        files: files.length,
+        message: `Successfully created bundle with ${files.length} files`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        path: null,
+        files: 0
+      };
+    }
   }
 
   /**
    * Generate summary with custom system prompt for web pages
+   * Returns JSON object with summary result
    * @private
    */
   async generateWebPageSummary(pdfPath, pageTitle, url) {
@@ -3074,11 +3154,21 @@ export class SummaryForge {
       }
 
       console.log("✅ Successfully generated summary using GPT-5 with web page PDF");
-      return md;
+      return {
+        success: true,
+        markdown: md,
+        length: md.length,
+        message: 'Successfully generated web page summary'
+      };
       
     } catch (fileUploadError) {
       console.error(`⚠️  GPT-5 PDF file upload failed: ${fileUploadError.message}`);
-      throw new Error(`Failed to generate web page summary: ${fileUploadError.message}`);
+      return {
+        success: false,
+        error: fileUploadError.message,
+        markdown: null,
+        length: 0
+      };
     }
   }
 
@@ -3087,10 +3177,11 @@ export class SummaryForge {
    *
    * @param {string} url - URL of the web page to summarize
    * @param {string} outputDir - Directory to save outputs (default: '.')
-   * @returns {Promise<Object>} Result with files, directory, archive, etc.
+   * @returns {Promise<Object>} JSON object with processing result
    */
   async processWebPage(url, outputDir = '.') {
-    console.log(`🌐 Processing web page: ${url}`);
+    try {
+      console.log(`🌐 Processing web page: ${url}`);
     
     // Fetch web page and save as PDF
     const webPageResult = await fetchWebPageAsPdf(url, null, {
@@ -3165,11 +3256,29 @@ export class SummaryForge {
     await fsp.rename(tempPdfPath, pdfPath);
     console.log(`✅ Saved PDF: ${pdfPath}`);
     
-    // Generate summary using web page-specific prompting
-    const markdown = await this.generateWebPageSummary(pdfPath, finalTitle, url);
-    
-    // Generate output files
-    const outputs = await this.generateOutputFiles(markdown, sanitizedTitle, webPageDir);
+      // Generate summary using web page-specific prompting
+      const summaryResult = await this.generateWebPageSummary(pdfPath, finalTitle, url);
+      if (!summaryResult.success) {
+        return {
+          success: false,
+          error: summaryResult.error,
+          basename: sanitizedTitle,
+          directory: webPageDir
+        };
+      }
+      const markdown = summaryResult.markdown;
+      
+      // Generate output files
+      const outputsResult = await this.generateOutputFiles(markdown, sanitizedTitle, webPageDir);
+      if (!outputsResult.success) {
+        return {
+          success: false,
+          error: 'Failed to generate output files',
+          basename: sanitizedTitle,
+          directory: webPageDir
+        };
+      }
+      const outputs = outputsResult.files;
     
     // Create file list for archive
     const files = [
@@ -3214,41 +3323,68 @@ export class SummaryForge {
       process.chdir(originalCwd);
     }
     
-    // Play terminal beep to signal completion
-    process.stdout.write('\x07');
-    
-    return {
-      basename: sanitizedTitle,
-      dirName,
-      markdown,
-      files,
-      directory: webPageDir,
-      archive: archiveName,
-      hasAudio: !!outputs.summaryMp3,
-      url: pageUrl,
-      title: finalTitle,
-      costs: this.getCostSummary()
-    };
+      // Play terminal beep to signal completion
+      process.stdout.write('\x07');
+      
+      return {
+        success: true,
+        basename: sanitizedTitle,
+        dirName,
+        markdown,
+        files,
+        directory: webPageDir,
+        archive: archiveName,
+        hasAudio: !!outputs.summaryMp3,
+        url: pageUrl,
+        title: finalTitle,
+        costs: this.getCostSummary(),
+        message: `Successfully processed web page: ${finalTitle}`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        basename: null,
+        directory: null,
+        url
+      };
+    }
   }
 
   /**
    * Process a book file (PDF or EPUB)
    * If the file was downloaded from Anna's Archive, it's already in the correct directory
+   * Returns JSON object with processing result
    */
   async processFile(filePath, asin = null) {
-    const ext = path.extname(filePath).toLowerCase();
-    let pdfPath = filePath;
-    let epubPath = null;
+    try {
+      const ext = path.extname(filePath).toLowerCase();
+      let pdfPath = filePath;
+      let epubPath = null;
 
-    if (ext === '.epub') {
-      console.log(`📖 Input: EPUB file`);
-      epubPath = filePath;
-      pdfPath = await this.convertEpubToPdf(filePath);
-    } else if (ext === '.pdf') {
-      console.log(`📖 Input: PDF file`);
-    } else {
-      throw new Error(`Unsupported file type: ${ext}. Only .pdf and .epub are supported.`);
-    }
+      if (ext === '.epub') {
+        console.log(`📖 Input: EPUB file`);
+        epubPath = filePath;
+        const conversionResult = await this.convertEpubToPdf(filePath);
+        if (!conversionResult.success) {
+          return {
+            success: false,
+            error: conversionResult.error,
+            basename: null,
+            directory: null
+          };
+        }
+        pdfPath = conversionResult.pdfPath;
+      } else if (ext === '.pdf') {
+        console.log(`📖 Input: PDF file`);
+      } else {
+        return {
+          success: false,
+          error: `Unsupported file type: ${ext}. Only .pdf and .epub are supported.`,
+          basename: null,
+          directory: null
+        };
+      }
 
     // Extract title from filename for basename (without ASIN)
     const basename = this.sanitizeFilename(path.basename(filePath));
@@ -3277,10 +3413,28 @@ export class SummaryForge {
       console.log(`📁 Created directory: ${bookDir}`);
     }
     
-    const markdown = await this.generateSummary(pdfPath);
+    const summaryResult = await this.generateSummary(pdfPath);
+    if (!summaryResult.success) {
+      return {
+        success: false,
+        error: summaryResult.error,
+        basename,
+        directory: bookDir
+      };
+    }
+    const markdown = summaryResult.markdown;
     
     // Generate output files using basename WITHOUT ASIN
-    const outputs = await this.generateOutputFiles(markdown, basename, bookDir);
+    const outputsResult = await this.generateOutputFiles(markdown, basename, bookDir);
+    if (!outputsResult.success) {
+      return {
+        success: false,
+        error: 'Failed to generate output files',
+        basename,
+        directory: bookDir
+      };
+    }
+    const outputs = outputsResult.files;
     
     // Copy original files to book directory with consistent naming (only if not already there)
     const files = [outputs.summaryMd, outputs.summaryTxt, outputs.summaryPdf, outputs.summaryEpub];
@@ -3339,20 +3493,30 @@ export class SummaryForge {
       process.chdir(originalCwd);
     }
 
-    // Play terminal beep to signal completion
-    process.stdout.write('\x07');
-    
-    return {
-      basename,
-      dirName,
-      markdown,
-      files,
-      directory: bookDir,
-      archive: archiveName,
-      hasAudio: !!outputs.summaryMp3,
-      asin: asin,  // Include ASIN in return value
-      costs: this.getCostSummary()
-    };
+      // Play terminal beep to signal completion
+      process.stdout.write('\x07');
+      
+      return {
+        success: true,
+        basename,
+        dirName,
+        markdown,
+        files,
+        directory: bookDir,
+        archive: archiveName,
+        hasAudio: !!outputs.summaryMp3,
+        asin: asin,
+        costs: this.getCostSummary(),
+        message: `Successfully processed file: ${basename}`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        basename: null,
+        directory: null
+      };
+    }
   }
 }
 

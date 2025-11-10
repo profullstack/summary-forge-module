@@ -181,10 +181,13 @@ describe('SummaryForge', () => {
       }).toThrow('OpenAI API key is required');
     });
 
-    it('should handle invalid file paths', async () => {
-      await expect(
-        forge.processFile('/nonexistent/path/file.pdf')
-      ).rejects.toThrow();
+    it('should return error JSON for invalid file paths', async () => {
+      const result = await forge.processFile('/nonexistent/path/file.pdf');
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.basename).toBeNull();
+      expect(result.directory).toBeNull();
     });
   });
 
@@ -282,25 +285,33 @@ describe('SummaryForge - API Integration Tests', () => {
   });
 
   describe('searchBookByTitle', () => {
-    it('should require Rainforest API key', async () => {
+    it('should return error JSON without Rainforest API key', async () => {
       const noKeyForge = new SummaryForge({
         openaiApiKey: 'test-key'
       });
       
-      await expect(
-        noKeyForge.searchBookByTitle('Test Book')
-      ).rejects.toThrow('Rainforest API key is required');
+      const result = await noKeyForge.searchBookByTitle('Test Book');
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Rainforest API key is required');
+      expect(result.results).toEqual([]);
+      expect(result.count).toBe(0);
+      expect(result.query).toBe('Test Book');
     });
   });
 
   describe('generateAudio', () => {
-    it('should skip audio generation without ElevenLabs key', async () => {
+    it('should return error JSON without ElevenLabs key', async () => {
       const noAudioForge = new SummaryForge({
         openaiApiKey: 'test-key'
       });
       
       const result = await noAudioForge.generateAudio('test text', 'output.mp3');
-      expect(result).toBeNull();
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('ElevenLabs API key not provided');
+      expect(result.path).toBeNull();
+      expect(result.size).toBe(0);
     });
   });
 });
@@ -723,6 +734,7 @@ describe('SummaryForge - Bug Fixes and Enhancements', () => {
       forge.trackRainforestCost();
       const summary = forge.getCostSummary();
       
+      expect(summary.success).toBe(true);
       expect(summary).toHaveProperty('openai');
       expect(summary).toHaveProperty('elevenlabs');
       expect(summary).toHaveProperty('rainforest');
