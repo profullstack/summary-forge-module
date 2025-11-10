@@ -12,23 +12,28 @@ import path from 'node:path';
 
 /**
  * Extract flashcards from markdown content
- * 
+ *
  * Supports multiple formats:
  * 1. Explicit Q&A format: **Q: question?** followed by A: answer
  * 2. Definition lists: **Term** followed by : definition
  * 3. Question headers: ### Question? followed by answer paragraph
- * 
+ *
  * @param {string} markdown - The markdown content to extract from
  * @param {Object} options - Extraction options
  * @param {number} options.maxCards - Maximum number of cards to extract (default: 100)
- * @returns {Array<{question: string, answer: string}>} Array of flashcard objects
+ * @returns {Object} JSON object with success status and flashcards array
  */
 export function extractFlashcards(markdown, options = {}) {
   const { maxCards = 100 } = options;
   const flashcards = [];
 
   if (!markdown || typeof markdown !== 'string') {
-    return flashcards;
+    return {
+      success: false,
+      error: 'Invalid markdown input',
+      flashcards: [],
+      count: 0
+    };
   }
 
   // Pattern 1: Explicit Q&A format
@@ -42,7 +47,7 @@ export function extractFlashcards(markdown, options = {}) {
     const answer = cleanMarkdown(match[2].trim());
     
     if (question && answer) {
-      flashcards.push({ question, answer });
+      flashcards.push({ question, answer, source: 'qa' });
     }
   }
 
@@ -65,7 +70,8 @@ export function extractFlashcards(markdown, options = {}) {
         !flashcards.some(fc => fc.question.includes(term))) {
       flashcards.push({
         question: `What is ${term}?`,
-        answer: definition
+        answer: definition,
+        source: 'definition'
       });
     }
   }
@@ -81,11 +87,23 @@ export function extractFlashcards(markdown, options = {}) {
         answer.length > 10 &&
         answer.length < 500 &&
         !flashcards.some(fc => fc.question === question)) {
-      flashcards.push({ question, answer });
+      flashcards.push({ question, answer, source: 'header' });
     }
   }
 
-  return flashcards.slice(0, maxCards);
+  const finalFlashcards = flashcards.slice(0, maxCards);
+  
+  return {
+    success: true,
+    flashcards: finalFlashcards,
+    count: finalFlashcards.length,
+    maxCards,
+    patterns: {
+      qaFormat: flashcards.filter(fc => fc.source === 'qa').length,
+      definitions: flashcards.filter(fc => fc.source === 'definition').length,
+      headers: flashcards.filter(fc => fc.source === 'header').length
+    }
+  };
 }
 
 /**
@@ -112,12 +130,12 @@ function cleanMarkdown(text) {
 
 /**
  * Generate a printable flashcards PDF
- * 
+ *
  * Creates a PDF optimized for double-sided printing where:
  * - Odd pages (1, 3, 5...) contain questions
  * - Even pages (2, 4, 6...) contain answers
  * - When printed double-sided and cut, each card has Q on front, A on back
- * 
+ *
  * @param {Array<{question: string, answer: string}>} flashcards - Array of flashcard objects
  * @param {string} outputPath - Path where PDF should be saved
  * @param {Object} options - PDF generation options
@@ -127,11 +145,16 @@ function cleanMarkdown(text) {
  * @param {number} options.cardHeight - Card height in inches (default: 2.5)
  * @param {number} options.fontSize - Base font size (default: 11)
  * @param {string} options.fontFamily - Font family (default: 'Helvetica')
- * @returns {Promise<string>} Path to generated PDF
+ * @returns {Promise<Object>} JSON object with success status and PDF path
  */
 export async function generateFlashcardsPDF(flashcards, outputPath, options = {}) {
   if (!flashcards || flashcards.length === 0) {
-    throw new Error('No flashcards to generate');
+    return {
+      success: false,
+      error: 'No flashcards to generate',
+      path: null,
+      count: 0
+    };
   }
 
   const {
@@ -339,10 +362,26 @@ export async function generateFlashcardsPDF(flashcards, outputPath, options = {}
 
       doc.end();
 
-      stream.on('finish', () => resolve(outputPath));
-      stream.on('error', reject);
+      stream.on('finish', () => resolve({
+        success: true,
+        path: outputPath,
+        count: flashcards.length,
+        pages: pageCount + 1, // +1 for instructions page
+        message: 'Flashcards PDF generated successfully'
+      }));
+      stream.on('error', (error) => reject({
+        success: false,
+        path: outputPath,
+        error: error.message,
+        message: 'Failed to generate flashcards PDF'
+      }));
     } catch (error) {
-      reject(error);
+      reject({
+        success: false,
+        path: outputPath,
+        error: error.message,
+        message: 'Failed to generate flashcards PDF'
+      });
     }
   });
 }
