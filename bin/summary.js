@@ -343,14 +343,20 @@ program
       const forge = new SummaryForge(config);
       const processResult = await forge.processFile(path.resolve(filePath));
       
+      if (!processResult || !processResult.success) {
+        console.error(chalk.red(`\n❌ Error: ${processResult?.error || 'Processing failed'}`));
+        process.exit(1);
+      }
+      
       console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
       
       // Display cost summary
+      const costs = processResult.costs || {};
       console.log(chalk.blue('\n💰 Cost Summary:'));
-      console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
-      console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
-      console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
-      console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
+      console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai || '$0.0000'}`));
+      console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs || '$0.0000'}`));
+      console.log(chalk.white(`   Rainforest API:     ${costs.rainforest || '$0.0000'}`));
+      console.log(chalk.yellow(`   Total:              ${costs.total || '$0.0000'}\n`));
     } catch (error) {
       console.error(chalk.red(`\n❌ Error: ${error.message}`));
       process.exit(1);
@@ -498,7 +504,7 @@ program
       
       const spinner = ora(`Searching 1lib.sk for "${query}"...`).start();
       
-      const { results, download } = await forge.search1libAndDownload(query, {
+      const searchResult = await forge.search1libAndDownload(query, {
         maxResults,
         yearFrom,
         yearTo,
@@ -563,6 +569,18 @@ program
     });
     
     spinner.stop();
+    
+    // Check if search was successful
+    if (!searchResult || !searchResult.success) {
+      console.error(chalk.red(`\n❌ Search failed: ${searchResult?.error || 'Unknown error'}`));
+      if (searchResult?.error?.includes('Proxy configuration')) {
+        console.log(chalk.yellow('\n💡 Tip: Enable proxy with: summary config --proxy true'));
+        console.log(chalk.gray('   1lib.sk requires proxy access\n'));
+      }
+      return;
+    }
+    
+    const { results, download } = searchResult;
     
     if (!download) {
       return;
