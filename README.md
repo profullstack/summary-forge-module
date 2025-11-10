@@ -223,6 +223,25 @@ summary file --help
 
 ## Programmatic Usage
 
+### JSON API Format
+
+**All methods now return consistent JSON objects** with the following structure:
+
+```javascript
+{
+  success: true | false,  // Indicates if operation succeeded
+  ...data,                // Method-specific data fields
+  error?: string,         // Error message (only when success is false)
+  message?: string        // Success message (optional)
+}
+```
+
+This enables:
+- ✅ **Consistent error handling** - Check `success` field instead of try-catch
+- ✅ **REST API ready** - Direct JSON responses for HTTP endpoints
+- ✅ **Better debugging** - Rich metadata in all responses
+- ✅ **Type-safe** - Predictable structure for TypeScript users
+
 ### Basic Example
 
 ```javascript
@@ -230,11 +249,22 @@ import { SummaryForge } from '@profullstack/summary-forge-module';
 import { loadConfig } from '@profullstack/summary-forge-module/config';
 
 // Load config from ~/.config/summary-forge/settings.json
-const config = await loadConfig();
-const forge = new SummaryForge(config);
+const configResult = await loadConfig();
+if (!configResult.success) {
+  console.error('Failed to load config:', configResult.error);
+  process.exit(1);
+}
+
+const forge = new SummaryForge(configResult.config);
 
 const result = await forge.processFile('./my-book.pdf');
-console.log('Summary created:', result.archive);
+if (result.success) {
+  console.log('Summary created:', result.archive);
+  console.log('Files:', result.files);
+  console.log('Costs:', result.costs);
+} else {
+  console.error('Processing failed:', result.error);
+}
 ```
 
 ### Configuration Options
@@ -286,15 +316,21 @@ const forge = new SummaryForge({
   rainforestApiKey: process.env.RAINFOREST_API_KEY
 });
 
-const results = await forge.searchBookByTitle('Clean Code');
-console.log('Found:', results.map(b => ({
+const searchResult = await forge.searchBookByTitle('Clean Code');
+if (!searchResult.success) {
+  console.error('Search failed:', searchResult.error);
+  process.exit(1);
+}
+
+console.log(`Found ${searchResult.count} results:`);
+console.log(searchResult.results.map(b => ({
   title: b.title,
   author: b.author,
   asin: b.asin
 })));
 
 // Get download URL
-const url = forge.getAnnasArchiveUrl(results[0].asin);
+const url = forge.getAnnasArchiveUrl(searchResult.results[0].asin);
 console.log('Download from:', url);
 ```
 
@@ -310,30 +346,19 @@ const forge = new SummaryForge({
 });
 
 // Basic search
-const results = await forge.searchAnnasArchive('JavaScript', {
+const searchResult = await forge.searchAnnasArchive('JavaScript', {
   maxResults: 10,
   format: 'pdf',
   sortBy: 'date'  // Sort by newest
 });
 
-// Advanced search with filters
-const advancedResults = await forge.searchAnnasArchive('LLM Fine Tuning', {
-  maxResults: 10,
-  format: 'pdf,epub',           // Multiple formats
-  sortBy: 'date',                // Sort by newest
-  language: 'en'                 // English only (default)
-  // sources not specified = search all sources (default)
-});
+if (!searchResult.success) {
+  console.error('Search failed:', searchResult.error);
+  process.exit(1);
+}
 
-// Search with multiple languages and specific sources
-const multiResults = await forge.searchAnnasArchive('Machine Learning', {
-  maxResults: 10,
-  format: 'pdf',
-  language: 'en,es',             // English and Spanish
-  sources: 'zlib,lgli'           // Limit to specific sources only
-});
-
-console.log('Found:', results.map(r => ({
+console.log(`Found ${searchResult.count} results`);
+console.log(searchResult.results.map(r => ({
   title: r.title,
   author: r.author,
   format: r.format,
@@ -342,10 +367,16 @@ console.log('Found:', results.map(r => ({
 })));
 
 // Download the first result
-if (results.length > 0) {
-  const md5 = results[0].href.match(/\/md5\/([a-f0-9]+)/)[1];
-  const download = await forge.downloadFromAnnasArchive(md5, '.', results[0].title);
-  console.log('Downloaded:', download.filepath);
+if (searchResult.results.length > 0) {
+  const md5 = searchResult.results[0].href.match(/\/md5\/([a-f0-9]+)/)[1];
+  const downloadResult = await forge.downloadFromAnnasArchive(md5, '.', searchResult.results[0].title);
+  
+  if (downloadResult.success) {
+    console.log('Downloaded:', downloadResult.filepath);
+    console.log('Directory:', downloadResult.directory);
+  } else {
+    console.error('Download failed:', downloadResult.error);
+  }
 }
 ```
 
@@ -361,25 +392,20 @@ const forge = new SummaryForge({
 });
 
 // Basic search
-const results = await forge.search1lib('LLM Fine Tuning', {
+const searchResult = await forge.search1lib('LLM Fine Tuning', {
   maxResults: 10,
   yearFrom: 2020,
   languages: ['english'],
   extensions: ['PDF']
 });
 
-// Advanced search with filters
-const advancedResults = await forge.search1lib('JavaScript', {
-  maxResults: 10,
-  yearFrom: 2020,
-  yearTo: 2024,
-  languages: ['english', 'spanish'],
-  extensions: ['PDF', 'EPUB'],
-  contentTypes: ['book'],
-  order: 'date'  // Sort by newest
-});
+if (!searchResult.success) {
+  console.error('Search failed:', searchResult.error);
+  process.exit(1);
+}
 
-console.log('Found:', results.map(r => ({
+console.log(`Found ${searchResult.count} results`);
+console.log(searchResult.results.map(r => ({
   title: r.title,
   author: r.author,
   year: r.year,
@@ -391,13 +417,27 @@ console.log('Found:', results.map(r => ({
 })));
 
 // Download the first result
-if (results.length > 0) {
-  const download = await forge.downloadFrom1lib(results[0].url, '.', results[0].title);
-  console.log('Downloaded:', download.filepath);
+if (searchResult.results.length > 0) {
+  const downloadResult = await forge.downloadFrom1lib(
+    searchResult.results[0].url,
+    '.',
+    searchResult.results[0].title
+  );
   
-  // Process the downloaded book
-  const result = await forge.processFile(download.filepath, download.identifier);
-  console.log('Summary created:', result.archive);
+  if (downloadResult.success) {
+    console.log('Downloaded:', downloadResult.filepath);
+    
+    // Process the downloaded book
+    const processResult = await forge.processFile(downloadResult.filepath, downloadResult.identifier);
+    if (processResult.success) {
+      console.log('Summary created:', processResult.archive);
+      console.log('Costs:', processResult.costs);
+    } else {
+      console.error('Processing failed:', processResult.error);
+    }
+  } else {
+    console.error('Download failed:', downloadResult.error);
+  }
 }
 ```
 
@@ -445,62 +485,110 @@ new SummaryForge({
 
 #### Methods
 
-- `processFile(filePath)` - Process a PDF or EPUB file
-  - Returns: `{ basename, markdown, files, archive, hasAudio }`
+All methods return JSON objects with `{ success, ...data, error?, message? }` format.
 
-- `processWebPage(url, outputDir)` - Process a web page URL
-  - Parameters:
-    - `url` (string) - URL of the web page to summarize
-    - `outputDir` (string, optional) - Directory to save outputs (default: '.')
-  - Returns: `{ basename, dirName, markdown, files, directory, archive, hasAudio, url, title, costs }`
-  - Features:
-    - Fetches web page with Puppeteer
-    - Sanitizes HTML to extract main content only
-    - Saves as PDF for processing
-    - Generates clean title (or uses OpenAI if needed)
-    - Uses web page-specific prompting (ignores nav/ads/footers)
+##### Processing Methods
 
-- `searchBookByTitle(title)` - Search Amazon for books using Rainforest API
-  - Returns: Array of book results
-
-- `searchAnnasArchive(query, options)` - Search Anna's Archive directly (bypasses Rainforest API)
-  - Parameters:
-    - `query` (string) - Search query (title or partial match)
-    - `options` (object, optional):
-      - `maxResults` (number) - Maximum results to return (default: 10)
-      - `format` (string) - Filter by format: 'pdf', 'epub', or 'all' (default: 'pdf')
-      - `sortBy` (string) - Sort by: 'newest' or 'relevance' (default: 'newest')
-  - Returns: Array of search results with structure:
+- **`processFile(filePath, asin?)`** - Process a PDF or EPUB file
+  - Returns: `{ success, basename, markdown, files, archive, hasAudio, asin, costs, message, error? }`
+  - Example:
     ```javascript
-    [{
-      index: 1,
-      title: "Book Title",
-      author: "Author Name",
-      format: "pdf",
-      sizeInMB: 12.5,
-      href: "/md5/abc123...",
-      url: "https://annas-archive.org/md5/abc123..."
-    }]
+    const result = await forge.processFile('./book.pdf');
+    if (result.success) {
+      console.log('Archive:', result.archive);
+      console.log('Costs:', result.costs);
+    }
     ```
 
-- `getAnnasArchiveUrl(asin)` - Get Anna's Archive URL
-  - Returns: String URL
+- **`processWebPage(url, outputDir?)`** - Process a web page URL
+  - Returns: `{ success, basename, dirName, markdown, files, directory, archive, hasAudio, url, title, costs, message, error? }`
+  - Example:
+    ```javascript
+    const result = await forge.processWebPage('https://example.com/article');
+    if (result.success) {
+      console.log('Summary:', result.markdown.substring(0, 100));
+    }
+    ```
 
-- `downloadFromAnnasArchive(asin, outputDir)` - Download book from Anna's Archive
-  - Returns: `{ filepath, directory, filename, title }`
+##### Search Methods
 
-- `convertEpubToPdf(epubPath)` - Convert EPUB to PDF
-  - Returns: String path to PDF
+- **`searchBookByTitle(title)`** - Search Amazon using Rainforest API
+  - Returns: `{ success, results, count, query, message, error? }`
+  - Example:
+    ```javascript
+    const result = await forge.searchBookByTitle('Clean Code');
+    if (result.success) {
+      console.log(`Found ${result.count} books`);
+    }
+    ```
 
-- `generateSummary(pdfPath)` - Generate AI summary from PDF using vision API with intelligent chunking
-  - Parameters: `pdfPath` (string) - Path to PDF file
-  - Returns: String markdown summary
-  - Features:
-    - **Direct PDF Upload**: Tries OpenAI's vision API first for best quality
-    - **Intelligent Chunking**: Automatically chunks large PDFs (>400k chars) for complete processing
-    - **Quality Preservation**: Each chunk is summarized separately, then synthesized into a cohesive final summary
-    - **No Truncation**: Processes entire books (500+ pages) without losing content
-    - **Adaptive**: Small PDFs processed in one request, large PDFs automatically chunked
+- **`searchAnnasArchive(query, options?)`** - Search Anna's Archive directly
+  - Returns: `{ success, results, count, query, options, message, error? }`
+  - Example:
+    ```javascript
+    const result = await forge.searchAnnasArchive('JavaScript', {
+      maxResults: 10,
+      format: 'pdf',
+      sortBy: 'date'
+    });
+    if (result.success) {
+      console.log(`Found ${result.count} results`);
+    }
+    ```
+
+- **`search1lib(query, options?)`** - Search 1lib.sk
+  - Returns: `{ success, results, count, query, options, message, error? }`
+
+##### Download Methods
+
+- **`downloadFromAnnasArchive(asin, outputDir?, bookTitle?)`** - Download from Anna's Archive
+  - Returns: `{ success, filepath, directory, asin, format, message, error? }`
+  - Example:
+    ```javascript
+    const result = await forge.downloadFromAnnasArchive('B075HYVHWK', '.');
+    if (result.success) {
+      console.log('Downloaded to:', result.filepath);
+    }
+    ```
+
+- **`downloadFrom1lib(bookUrl, outputDir?, bookTitle?, downloadUrl?)`** - Download from 1lib.sk
+  - Returns: `{ success, filepath, directory, title, format, message, error? }`
+
+- **`search1libAndDownload(query, searchOptions?, outputDir?, selectCallback?)`** - Search and download in one session
+  - Returns: `{ success, results, download, message, error? }`
+
+##### Generation Methods
+
+- **`generateSummary(pdfPath)`** - Generate AI summary from PDF
+  - Returns: `{ success, markdown, length, method, chunks?, message, error? }`
+  - Methods: `gpt5_pdf_upload`, `text_extraction_single`, `text_extraction_chunked`
+  - Example:
+    ```javascript
+    const result = await forge.generateSummary('./book.pdf');
+    if (result.success) {
+      console.log(`Generated ${result.length} char summary using ${result.method}`);
+    }
+    ```
+
+- **`generateAudioScript(markdown)`** - Generate audio-friendly narration script
+  - Returns: `{ success, script, length, message }`
+
+- **`generateAudio(text, outputPath)`** - Generate audio using ElevenLabs TTS
+  - Returns: `{ success, path, size, duration, message, error? }`
+
+- **`generateOutputFiles(markdown, basename, outputDir)`** - Generate all output formats
+  - Returns: `{ success, files: {...}, message }`
+
+##### Utility Methods
+
+- **`convertEpubToPdf(epubPath)`** - Convert EPUB to PDF
+  - Returns: `{ success, pdfPath, originalPath, message, error? }`
+
+- **`createBundle(files, archiveName)`** - Create tar.gz archive
+  - Returns: `{ success, path, files, message, error? }`
+
+- **`getCostSummary()`** - Get cost tracking information
+  - Returns: `{ success, openai, elevenlabs, rainforest, total, breakdown }`
 
 ## Configuration
 
