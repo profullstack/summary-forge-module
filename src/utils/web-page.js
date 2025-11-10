@@ -101,6 +101,8 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
       '--no-zygote',
       '--disable-gpu',
       '--disable-background-networking',
+      '--disable-crash-reporter',
+      '--disable-breakpad',
     ],
     defaultViewport: { width: 1200, height: 800 },
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,

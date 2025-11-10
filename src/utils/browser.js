@@ -66,6 +66,8 @@ export async function launchBrowserWithProxy(proxyConfig) {
       '--no-zygote',
       '--disable-gpu',
       '--disable-background-networking',
+      '--disable-crash-reporter',
+      '--disable-breakpad',
     ],
     userDataDir,
     defaultViewport: { width: 1200, height: 800 },
