@@ -169,27 +169,31 @@ A: A JavaScript runtime built on Chrome's V8 engine.
 A: ECMAScript Modules, the standard module system for JavaScript.
       `.trim();
       
-      const flashcards = extractFlashcards(markdown);
+      const result = extractFlashcards(markdown);
       
-      expect(Array.isArray(flashcards)).toBe(true);
-      expect(flashcards.length).toBe(2);
-      expect(flashcards[0]).toHaveProperty('question');
-      expect(flashcards[0]).toHaveProperty('answer');
-      expect(flashcards[0].question).toContain('Node.js');
-      expect(flashcards[1].question).toContain('ESM');
+      expect(result.success).toBe(true);
+      expect(Array.isArray(result.flashcards)).toBe(true);
+      expect(result.count).toBe(2);
+      expect(result.flashcards[0]).toHaveProperty('question');
+      expect(result.flashcards[0]).toHaveProperty('answer');
+      expect(result.flashcards[0].question).toContain('Node.js');
+      expect(result.flashcards[1].question).toContain('ESM');
     });
   });
 
   describe('Config Functions', () => {
     it('should have getConfigPath function', () => {
-      const configPath = getConfigPath();
-      expect(typeof configPath).toBe('string');
-      expect(configPath).toContain('summary-forge');
+      const result = getConfigPath();
+      expect(typeof result).toBe('object');
+      expect(result.success).toBe(true);
+      expect(result.path).toContain('summary-forge');
     });
 
     it('should check if config exists', async () => {
-      const exists = await hasConfig();
-      expect(typeof exists).toBe('boolean');
+      const result = await hasConfig();
+      expect(typeof result).toBe('object');
+      expect(result.success).toBe(true);
+      expect(typeof result.exists).toBe('boolean');
     });
 
     it('should handle config operations', async () => {

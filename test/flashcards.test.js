@@ -22,16 +22,20 @@ A: The main concept is about understanding the fundamentals.
 A: It's important because it forms the foundation for advanced topics.
       `;
 
-      const flashcards = extractFlashcards(markdown);
+      const result = extractFlashcards(markdown);
       
-      expect(flashcards).toHaveLength(2);
-      expect(flashcards[0]).toEqual({
+      expect(result.success).toBe(true);
+      expect(result.flashcards).toHaveLength(2);
+      expect(result.count).toBe(2);
+      expect(result.flashcards[0]).toEqual({
         question: 'What is the main concept?',
-        answer: 'The main concept is about understanding the fundamentals.'
+        answer: 'The main concept is about understanding the fundamentals.',
+        source: 'qa'
       });
-      expect(flashcards[1]).toEqual({
+      expect(result.flashcards[1]).toEqual({
         question: 'Why is this important?',
-        answer: "It's important because it forms the foundation for advanced topics."
+        answer: "It's important because it forms the foundation for advanced topics.",
+        source: 'qa'
       });
     });
 
@@ -46,11 +50,12 @@ A: It's important because it forms the foundation for advanced topics.
 : Definition of term 2 goes here.
       `;
 
-      const flashcards = extractFlashcards(markdown);
+      const result = extractFlashcards(markdown);
       
-      expect(flashcards).toHaveLength(2);
-      expect(flashcards[0].question).toContain('Term 1');
-      expect(flashcards[0].answer).toContain('Definition of term 1');
+      expect(result.success).toBe(true);
+      expect(result.flashcards).toHaveLength(2);
+      expect(result.flashcards[0].question).toContain('Term 1');
+      expect(result.flashcards[0].answer).toContain('Definition of term 1');
     });
 
     it('should extract Q&A from headers followed by content', () => {
@@ -64,25 +69,37 @@ Node.js is a JavaScript runtime built on Chrome's V8 engine.
 Async/await makes asynchronous code easier to read and write.
       `;
 
-      const flashcards = extractFlashcards(markdown);
+      const result = extractFlashcards(markdown);
       
-      expect(flashcards.length).toBeGreaterThan(0);
-      expect(flashcards[0].question).toContain('Node.js');
+      expect(result.success).toBe(true);
+      expect(result.count).toBeGreaterThan(0);
+      expect(result.flashcards[0].question).toContain('Node.js');
     });
 
     it('should handle empty or invalid markdown', () => {
-      expect(extractFlashcards('')).toEqual([]);
-      expect(extractFlashcards('Just some text without structure')).toEqual([]);
+      const emptyResult = extractFlashcards('');
+      expect(emptyResult.success).toBe(false);
+      expect(emptyResult.flashcards).toEqual([]);
+      expect(emptyResult.count).toBe(0);
+      
+      const invalidResult = extractFlashcards('Just some text without structure');
+      // extractFlashcards returns success: true with empty array when no flashcards found
+      expect(invalidResult.success).toBe(true);
+      expect(invalidResult.flashcards).toEqual([]);
+      expect(invalidResult.count).toBe(0);
     });
 
     it('should limit flashcards to a maximum number', () => {
-      const markdown = Array.from({ length: 100 }, (_, i) => 
+      const markdown = Array.from({ length: 100 }, (_, i) =>
         `**Q: Question ${i}?**\nA: Answer ${i}.`
       ).join('\n\n');
 
-      const flashcards = extractFlashcards(markdown, { maxCards: 50 });
+      const result = extractFlashcards(markdown, { maxCards: 50 });
       
-      expect(flashcards).toHaveLength(50);
+      expect(result.success).toBe(true);
+      expect(result.flashcards).toHaveLength(50);
+      expect(result.count).toBe(50);
+      expect(result.maxCards).toBe(50);
     });
 
     it('should clean up markdown formatting in questions and answers', () => {
@@ -91,12 +108,13 @@ Async/await makes asynchronous code easier to read and write.
 A: It's \`code\` and [links](http://example.com) that should be cleaned.
       `;
 
-      const flashcards = extractFlashcards(markdown);
+      const result = extractFlashcards(markdown);
       
-      expect(flashcards[0].question).not.toContain('*');
-      expect(flashcards[0].question).not.toContain('**');
-      expect(flashcards[0].answer).not.toContain('`');
-      expect(flashcards[0].answer).not.toContain('[');
+      expect(result.success).toBe(true);
+      expect(result.flashcards[0].question).not.toContain('*');
+      expect(result.flashcards[0].question).not.toContain('**');
+      expect(result.flashcards[0].answer).not.toContain('`');
+      expect(result.flashcards[0].answer).not.toContain('[');
     });
   });
 
@@ -129,10 +147,13 @@ A: It's \`code\` and [links](http://example.com) that should be cleaned.
       expect(stats.size).toBeGreaterThan(0);
     });
 
-    it('should handle empty flashcards array', async () => {
-      await expect(
-        generateFlashcardsPDF([], testPdfPath)
-      ).rejects.toThrow('No flashcards to generate');
+    it('should return error JSON for empty flashcards array', async () => {
+      const result = await generateFlashcardsPDF([], testPdfPath);
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('No flashcards to generate');
+      expect(result.path).toBeNull();
+      expect(result.count).toBe(0);
     });
 
     it('should create output directory if it does not exist', async () => {

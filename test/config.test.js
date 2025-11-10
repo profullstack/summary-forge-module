@@ -43,29 +43,35 @@ describe('Config Utility', () => {
   });
 
   describe('getConfigPath()', () => {
-    it('should return path in ~/.config/summary-forge/', () => {
-      const configPath = getConfigPath();
-      expect(configPath).toContain('.config');
-      expect(configPath).toContain('summary-forge');
-      expect(configPath).toContain('settings.json');
+    it('should return JSON with path in ~/.config/summary-forge/', () => {
+      const result = getConfigPath();
+      expect(result.success).toBe(true);
+      expect(result.path).toContain('.config');
+      expect(result.path).toContain('summary-forge');
+      expect(result.path).toContain('settings.json');
+      expect(result.directory).toContain('.config');
     });
   });
 
   describe('hasConfig()', () => {
-    it('should return false when config does not exist', async () => {
-      const exists = await hasConfig();
-      expect(exists).toBe(false);
+    it('should return JSON with exists false when config does not exist', async () => {
+      const result = await hasConfig();
+      expect(result.success).toBe(true);
+      expect(result.exists).toBe(false);
+      expect(result.path).toBeDefined();
     });
 
-    it('should return true when config exists', async () => {
+    it('should return JSON with exists true when config exists', async () => {
       const config = {
         openaiApiKey: 'test-key',
         rainforestApiKey: 'test-key'
       };
       await saveConfig(config);
       
-      const exists = await hasConfig();
-      expect(exists).toBe(true);
+      const result = await hasConfig();
+      expect(result.success).toBe(true);
+      expect(result.exists).toBe(true);
+      expect(result.path).toBeDefined();
     });
   });
 
@@ -77,10 +83,12 @@ describe('Config Utility', () => {
         elevenlabsApiKey: 'el-test-789'
       };
       
-      await saveConfig(config);
+      const saveResult = await saveConfig(config);
+      expect(saveResult.success).toBe(true);
+      expect(saveResult.path).toBeDefined();
       
-      const configPath = getConfigPath();
-      const fileContent = await fs.readFile(configPath, 'utf8');
+      const configPathResult = getConfigPath();
+      const fileContent = await fs.readFile(configPathResult.path, 'utf8');
       const savedConfig = JSON.parse(fileContent);
       
       expect(savedConfig).toEqual(config);
@@ -89,10 +97,12 @@ describe('Config Utility', () => {
     it('should create directory if it does not exist', async () => {
       const config = { openaiApiKey: 'test' };
       
-      await saveConfig(config);
+      const saveResult = await saveConfig(config);
+      expect(saveResult.success).toBe(true);
       
-      const exists = await hasConfig();
-      expect(exists).toBe(true);
+      const existsResult = await hasConfig();
+      expect(existsResult.success).toBe(true);
+      expect(existsResult.exists).toBe(true);
     });
 
     it('should overwrite existing config', async () => {
@@ -102,8 +112,9 @@ describe('Config Utility', () => {
       await saveConfig(config1);
       await saveConfig(config2);
       
-      const loaded = await loadConfig();
-      expect(loaded.openaiApiKey).toBe('new-key');
+      const loadResult = await loadConfig();
+      expect(loadResult.success).toBe(true);
+      expect(loadResult.config.openaiApiKey).toBe('new-key');
     });
 
     it('should handle optional fields', async () => {
@@ -114,10 +125,11 @@ describe('Config Utility', () => {
       };
       
       await saveConfig(config);
-      const loaded = await loadConfig();
+      const loadResult = await loadConfig();
       
-      expect(loaded.headless).toBe(true);
-      expect(loaded.enableProxy).toBe(false);
+      expect(loadResult.success).toBe(true);
+      expect(loadResult.config.headless).toBe(true);
+      expect(loadResult.config.enableProxy).toBe(false);
     });
 
     it('should save and load proxy pool size', async () => {
@@ -131,9 +143,10 @@ describe('Config Utility', () => {
       };
       
       await saveConfig(config);
-      const loaded = await loadConfig();
+      const loadResult = await loadConfig();
       
-      expect(loaded.proxyPoolSize).toBe(50);
+      expect(loadResult.success).toBe(true);
+      expect(loadResult.config.proxyPoolSize).toBe(50);
     });
 
     it('should apply default proxy pool size when not specified', async () => {
@@ -146,17 +159,20 @@ describe('Config Utility', () => {
       };
       
       await saveConfig(config);
-      const loaded = await loadConfig();
+      const loadResult = await loadConfig();
       
+      expect(loadResult.success).toBe(true);
       // proxyPoolSize defaults to 36 when not specified in config
-      expect(loaded.proxyPoolSize).toBe(36);
+      expect(loadResult.config.proxyPoolSize).toBe(36);
     });
   });
 
   describe('loadConfig()', () => {
-    it('should return null when config does not exist', async () => {
-      const config = await loadConfig({ skipEnvFallback: true });
-      expect(config).toBeNull();
+    it('should return JSON with null config when config does not exist', async () => {
+      const result = await loadConfig({ skipEnvFallback: true });
+      expect(result.success).toBe(false);
+      expect(result.config).toBeNull();
+      expect(result.error).toBeDefined();
     });
 
     it('should load saved config', async () => {
@@ -168,18 +184,21 @@ describe('Config Utility', () => {
       };
       
       await saveConfig(config);
-      const loaded = await loadConfig({ skipEnvFallback: true });
+      const loadResult = await loadConfig({ skipEnvFallback: true });
       
-      expect(loaded).toEqual(config);
+      expect(loadResult.success).toBe(true);
+      expect(loadResult.config).toEqual(config);
+      expect(loadResult.source).toBe('file');
     });
 
     it('should handle malformed JSON gracefully', async () => {
-      const configPath = getConfigPath();
-      await fs.mkdir(path.dirname(configPath), { recursive: true });
-      await fs.writeFile(configPath, 'invalid json{', 'utf8');
+      const configPathResult = getConfigPath();
+      await fs.mkdir(path.dirname(configPathResult.path), { recursive: true });
+      await fs.writeFile(configPathResult.path, 'invalid json{', 'utf8');
       
-      const config = await loadConfig({ skipEnvFallback: true });
-      expect(config).toBeNull();
+      const result = await loadConfig({ skipEnvFallback: true });
+      expect(result.success).toBe(false);
+      expect(result.config).toBeNull();
     });
   });
 
@@ -188,16 +207,25 @@ describe('Config Utility', () => {
       const config = { openaiApiKey: 'test' };
       await saveConfig(config);
       
-      expect(await hasConfig()).toBe(true);
+      const existsBefore = await hasConfig();
+      expect(existsBefore.success).toBe(true);
+      expect(existsBefore.exists).toBe(true);
       
-      await deleteConfig();
+      const deleteResult = await deleteConfig();
+      expect(deleteResult.success).toBe(true);
       
-      expect(await hasConfig()).toBe(false);
+      const existsAfter = await hasConfig();
+      expect(existsAfter.success).toBe(true);
+      expect(existsAfter.exists).toBe(false);
     });
 
     it('should not throw when config does not exist', async () => {
-      await deleteConfig(); // Should not throw
-      expect(await hasConfig()).toBe(false);
+      const deleteResult = await deleteConfig(); // Should not throw
+      expect(deleteResult.success).toBe(true);
+      
+      const existsResult = await hasConfig();
+      expect(existsResult.success).toBe(true);
+      expect(existsResult.exists).toBe(false);
     });
   });
 });

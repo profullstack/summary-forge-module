@@ -733,6 +733,18 @@ export class SummaryForge {
       sources = null // Data sources, comma-separated (default: null = search all sources)
     } = options;
 
+    // Validate proxy configuration before attempting to use it
+    if (!this.enableProxy || !this.proxyUrl) {
+      return {
+        success: false,
+        error: 'Proxy configuration is required for Anna\'s Archive search',
+        results: [],
+        count: 0,
+        query,
+        options
+      };
+    }
+
     console.log(`🔍 Searching Anna's Archive for "${query}"...`);
     
     // Build search URL with all parameters matching Anna's Archive format
@@ -1658,7 +1670,12 @@ export class SummaryForge {
    */
   async downloadFrom1lib(bookUrl, outputDir = '.', bookTitle = null, downloadUrl = null) {
     if (!this.enableProxy || !this.proxyUrl) {
-      throw new Error('Proxy configuration is required for 1lib.sk downloads');
+      return {
+        success: false,
+        error: 'Proxy configuration is required for 1lib.sk downloads',
+        filepath: null,
+        directory: null
+      };
     }
 
     console.log(`📚 Downloading from 1lib.sk...`);

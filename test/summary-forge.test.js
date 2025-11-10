@@ -293,7 +293,7 @@ describe('SummaryForge - API Integration Tests', () => {
       const result = await noKeyForge.searchBookByTitle('Test Book');
       
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Rainforest API key is required');
+      expect(result.error).toBe('Rainforest API key is required for title search');
       expect(result.results).toEqual([]);
       expect(result.count).toBe(0);
       expect(result.query).toBe('Test Book');

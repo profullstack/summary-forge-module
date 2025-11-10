@@ -55,17 +55,20 @@ describe('Anna\'s Archive Search', () => {
     });
     
     it.skipIf(SKIP_INTEGRATION)('should search for books by title', async () => {
-      const results = await forge.searchAnnasArchive('JavaScript', {
+      const result = await forge.searchAnnasArchive('JavaScript', {
         maxResults: 5,
         format: 'pdf',
         sortBy: 'date'
       });
       
-      expect(results).toBeInstanceOf(Array);
-      expect(results.length).toBeLessThanOrEqual(5);
+      expect(result.success).toBe(true);
+      expect(result.results).toBeInstanceOf(Array);
+      expect(result.count).toBeLessThanOrEqual(5);
+      expect(result.query).toBe('JavaScript');
+      expect(result).toHaveProperty('message');
       
-      if (results.length > 0) {
-        const firstResult = results[0];
+      if (result.results.length > 0) {
+        const firstResult = result.results[0];
         expect(firstResult).toHaveProperty('title');
         expect(firstResult).toHaveProperty('format');
         expect(firstResult).toHaveProperty('sizeInMB');
@@ -80,17 +83,18 @@ describe('Anna\'s Archive Search', () => {
     }, 120000);
     
     it.skipIf(SKIP_INTEGRATION)('should support partial title matching', async () => {
-      const results = await forge.searchAnnasArchive('Clean Code', {
+      const result = await forge.searchAnnasArchive('Clean Code', {
         maxResults: 3,
         format: 'pdf'
       });
       
-      expect(results).toBeInstanceOf(Array);
+      expect(result.success).toBe(true);
+      expect(result.results).toBeInstanceOf(Array);
       
-      if (results.length > 0) {
+      if (result.results.length > 0) {
         // At least one result should contain "clean" or "code" in title (case-insensitive)
-        const hasMatch = results.some(r => 
-          r.title.toLowerCase().includes('clean') || 
+        const hasMatch = result.results.some(r =>
+          r.title.toLowerCase().includes('clean') ||
           r.title.toLowerCase().includes('code')
         );
         expect(hasMatch).toBe(true);
@@ -209,12 +213,14 @@ describe('Anna\'s Archive Search', () => {
   
   describe('Search result structure', () => {
     it.skipIf(SKIP_INTEGRATION)('should return properly structured results', async () => {
-      const results = await forge.searchAnnasArchive('Node.js', {
+      const searchResult = await forge.searchAnnasArchive('Node.js', {
         maxResults: 1
       });
       
-      if (results.length > 0) {
-        const result = results[0];
+      expect(searchResult.success).toBe(true);
+      
+      if (searchResult.results.length > 0) {
+        const result = searchResult.results[0];
         
         // Required fields
         expect(result).toHaveProperty('index');
@@ -247,15 +253,18 @@ describe('Anna\'s Archive Search', () => {
   });
   
   describe('Error handling', () => {
-    it('should handle missing proxy configuration', async () => {
+    it('should return error JSON for missing proxy configuration', async () => {
       const forgeNoProxy = new SummaryForge({
         openaiApiKey: 'test-key',
         enableProxy: false
       });
       
-      await expect(async () => {
-        await forgeNoProxy.searchAnnasArchive('test');
-      }).rejects.toThrow();
+      const result = await forgeNoProxy.searchAnnasArchive('test');
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.results).toEqual([]);
+      expect(result.count).toBe(0);
     });
   });
 });

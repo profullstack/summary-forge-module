@@ -58,18 +58,21 @@ describe('1lib.sk Search', () => {
     });
     
     it.skipIf(SKIP_INTEGRATION)('should search for books by title', async () => {
-      const results = await forge.search1lib('LLM Fine Tuning', {
+      const result = await forge.search1lib('LLM Fine Tuning', {
         maxResults: 5,
         yearFrom: 2020,
         languages: ['english'],
         extensions: ['PDF']
       });
       
-      expect(results).toBeInstanceOf(Array);
-      expect(results.length).toBeLessThanOrEqual(5);
+      expect(result.success).toBe(true);
+      expect(result.results).toBeInstanceOf(Array);
+      expect(result.count).toBeLessThanOrEqual(5);
+      expect(result.query).toBe('LLM Fine Tuning');
+      expect(result).toHaveProperty('message');
       
-      if (results.length > 0) {
-        const firstResult = results[0];
+      if (result.results.length > 0) {
+        const firstResult = result.results[0];
         expect(firstResult).toHaveProperty('title');
         expect(firstResult).toHaveProperty('extension');
         expect(firstResult).toHaveProperty('size');
@@ -84,16 +87,17 @@ describe('1lib.sk Search', () => {
     }, 120000);
     
     it.skipIf(SKIP_INTEGRATION)('should search by ISBN', async () => {
-      const results = await forge.search1lib('9780134685991', {
+      const result = await forge.search1lib('9780134685991', {
         maxResults: 3
       });
       
-      expect(results).toBeInstanceOf(Array);
+      expect(result.success).toBe(true);
+      expect(result.results).toBeInstanceOf(Array);
       
-      if (results.length > 0) {
+      if (result.results.length > 0) {
         // Should find books matching the ISBN
-        expect(results[0]).toHaveProperty('title');
-        expect(results[0]).toHaveProperty('isbn');
+        expect(result.results[0]).toHaveProperty('title');
+        expect(result.results[0]).toHaveProperty('isbn');
       }
     }, 120000);
     
@@ -265,15 +269,18 @@ describe('1lib.sk Search', () => {
   });
   
   describe('Error handling', () => {
-    it('should handle missing proxy configuration', async () => {
+    it('should return error JSON for missing proxy configuration', async () => {
       const forgeNoProxy = new SummaryForge({
         openaiApiKey: 'test-key',
         enableProxy: false
       });
       
-      await expect(async () => {
-        await forgeNoProxy.search1lib('test');
-      }).rejects.toThrow();
+      const result = await forgeNoProxy.search1lib('test');
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Proxy configuration is required for 1lib.sk search');
+      expect(result.results).toEqual([]);
+      expect(result.count).toBe(0);
     });
   });
 });
@@ -322,25 +329,28 @@ describe('1lib.sk Download', () => {
     
     it.skipIf(SKIP_INTEGRATION)('should download a book from 1lib.sk', async () => {
       // First search for a book
-      const results = await forge.search1lib('JavaScript', {
+      const searchResult = await forge.search1lib('JavaScript', {
         maxResults: 1,
         extensions: ['PDF']
       });
       
-      expect(results).toBeInstanceOf(Array);
+      expect(searchResult.success).toBe(true);
+      expect(searchResult.results).toBeInstanceOf(Array);
       
-      if (results.length > 0) {
-        const book = results[0];
+      if (searchResult.results.length > 0) {
+        const book = searchResult.results[0];
         
         // Download the book
         const download = await forge.downloadFrom1lib(book.url, '.', book.title);
         
+        expect(download.success).toBe(true);
         expect(download).toHaveProperty('filepath');
         expect(download).toHaveProperty('directory');
         expect(download).toHaveProperty('filename');
         expect(download).toHaveProperty('title');
         expect(download).toHaveProperty('identifier');
         expect(download).toHaveProperty('format');
+        expect(download).toHaveProperty('message');
         
         expect(typeof download.filepath).toBe('string');
         expect(typeof download.directory).toBe('string');
@@ -378,25 +388,30 @@ describe('1lib.sk Download', () => {
   });
   
   describe('Error handling', () => {
-    it('should handle missing proxy configuration for download', async () => {
+    it('should return error JSON for missing proxy configuration for download', async () => {
       const forgeNoProxy = new SummaryForge({
         openaiApiKey: 'test-key',
         enableProxy: false
       });
       
-      await expect(async () => {
-        await forgeNoProxy.downloadFrom1lib('https://1lib.sk/book/test', '.');
-      }).rejects.toThrow();
+      const result = await forgeNoProxy.downloadFrom1lib('https://1lib.sk/book/test', '.');
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Proxy configuration is required for 1lib.sk downloads');
+      expect(result.filepath).toBeNull();
+      expect(result.directory).toBeNull();
     });
     
-    it('should handle invalid book URL', async () => {
+    it('should return error JSON for invalid book URL', async () => {
       if (!process.env.PROXY_URL) {
         return; // Skip if no proxy configured
       }
       
-      await expect(async () => {
-        await forge.downloadFrom1lib('https://1lib.sk/invalid-url', '.');
-      }).rejects.toThrow();
+      const result = await forge.downloadFrom1lib('https://1lib.sk/invalid-url', '.');
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.filepath).toBeNull();
     }, 60000);
     
     it('should provide debug information when download button not found', async () => {
