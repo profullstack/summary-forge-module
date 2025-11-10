@@ -89,15 +89,22 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
   
   console.log(`🌐 Fetching web page: ${url}`);
   
-  // Browser launch options
+  // Browser launch options with Docker-safe arguments
   const launchOptions = {
     headless,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu',
+      '--single-process',
+      '--disable-background-networking',
     ],
     defaultViewport: { width: 1200, height: 800 },
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
   };
   
   // Add proxy if provided

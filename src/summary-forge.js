@@ -803,9 +803,16 @@ export class SummaryForge {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-background-networking',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     });
     
     try {
@@ -1044,9 +1051,16 @@ export class SummaryForge {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-background-networking',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     });
     
     try {
@@ -1267,9 +1281,16 @@ export class SummaryForge {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-background-networking',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     });
     
     try {
@@ -1704,9 +1725,16 @@ export class SummaryForge {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-background-networking',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     });
     
     try {
@@ -1944,9 +1972,16 @@ export class SummaryForge {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process',
+        '--disable-background-networking',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     });
     
     // Handle Ctrl-C to close browser gracefully
