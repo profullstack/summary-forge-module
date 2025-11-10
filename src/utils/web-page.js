@@ -103,9 +103,12 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
       '--disable-background-networking',
       '--disable-crash-reporter',
       '--disable-breakpad',
+      '--disable-features=VizDisplayCompositor',
+      '--disable-software-rasterizer',
     ],
     defaultViewport: { width: 1200, height: 800 },
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+    ignoreDefaultArgs: ['--enable-automation'],
   };
   
   // Add proxy if provided

@@ -810,10 +810,13 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-crash-reporter',
         '--disable-breakpad',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-software-rasterizer',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      ignoreDefaultArgs: ['--enable-automation'],
     });
     
     try {
@@ -1059,10 +1062,13 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-crash-reporter',
         '--disable-breakpad',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-software-rasterizer',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      ignoreDefaultArgs: ['--enable-automation'],
     });
     
     try {
@@ -1290,10 +1296,13 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-crash-reporter',
         '--disable-breakpad',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-software-rasterizer',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      ignoreDefaultArgs: ['--enable-automation'],
     });
     
     try {
@@ -1735,10 +1744,13 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-crash-reporter',
         '--disable-breakpad',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-software-rasterizer',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      ignoreDefaultArgs: ['--enable-automation'],
     });
     
     try {
@@ -1983,10 +1995,13 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-crash-reporter',
         '--disable-breakpad',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-software-rasterizer',
       ],
       userDataDir,
       defaultViewport: { width: 1200, height: 800 },
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+      ignoreDefaultArgs: ['--enable-automation'],
     });
     
     // Handle Ctrl-C to close browser gracefully
