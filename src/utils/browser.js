@@ -65,7 +65,6 @@ export async function launchBrowserWithProxy(proxyConfig) {
       '--no-first-run',
       '--no-zygote',
       '--disable-gpu',
-      '--single-process',
       '--disable-background-networking',
     ],
     userDataDir,

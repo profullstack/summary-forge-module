@@ -100,7 +100,6 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
       '--no-first-run',
       '--no-zygote',
       '--disable-gpu',
-      '--single-process',
       '--disable-background-networking',
     ],
     defaultViewport: { width: 1200, height: 800 },
