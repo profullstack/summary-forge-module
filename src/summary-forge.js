@@ -137,9 +137,11 @@ export class SummaryForge {
 
   /**
    * Get cost summary
+   * Returns JSON object with cost information
    */
   getCostSummary() {
     return {
+      success: true,
       openai: `$${this.costs.openai.toFixed(4)}`,
       elevenlabs: `$${this.costs.elevenlabs.toFixed(4)}`,
       rainforest: `$${this.costs.rainforest.toFixed(4)}`,
@@ -641,6 +643,7 @@ export class SummaryForge {
 
   /**
    * Convert EPUB to PDF using ebook-convert
+   * Returns JSON object with conversion result
    */
   async convertEpubToPdf(epubPath) {
     const pdfPath = epubPath.replace(/\.epub$/i, '.pdf');
@@ -649,38 +652,77 @@ export class SummaryForge {
     try {
       await this.sh('ebook-convert', [epubPath, pdfPath]);
       console.log(`✅ Converted to ${pdfPath}`);
-      return pdfPath;
+      return {
+        success: true,
+        pdfPath,
+        originalPath: epubPath,
+        message: 'Successfully converted EPUB to PDF'
+      };
     } catch (err) {
-      throw new Error(`Failed to convert EPUB to PDF. Make sure Calibre is installed. Error: ${err.message}`);
+      return {
+        success: false,
+        error: `Failed to convert EPUB to PDF. Make sure Calibre is installed. Error: ${err.message}`,
+        pdfPath: null,
+        originalPath: epubPath
+      };
     }
   }
 
   /**
    * Search for book on Amazon using Rainforest API
+   * Returns JSON object with search results
    */
   async searchBookByTitle(title) {
-    if (!this.rainforestApiKey) {
-      throw new Error("Rainforest API key is required for title search");
+    try {
+      if (!this.rainforestApiKey) {
+        return {
+          success: false,
+          error: "Rainforest API key is required for title search",
+          results: [],
+          count: 0,
+          query: title
+        };
+      }
+      
+      console.log(`🔍 Searching for "${title}" on Amazon...`);
+      const searchUrl = `https://api.rainforestapi.com/request?api_key=${this.rainforestApiKey}&type=search&amazon_domain=amazon.com&search_term=${encodeURIComponent(title)}`;
+      
+      const data = await this.httpGet(searchUrl);
+      
+      // Track Rainforest API cost
+      this.trackRainforestCost();
+      
+      if (!data.search_results || data.search_results.length === 0) {
+        return {
+          success: false,
+          error: `No results found for "${title}"`,
+          results: [],
+          count: 0,
+          query: title
+        };
+      }
+      
+      return {
+        success: true,
+        results: data.search_results,
+        count: data.search_results.length,
+        query: title,
+        message: `Found ${data.search_results.length} results for "${title}"`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        results: [],
+        count: 0,
+        query: title
+      };
     }
-    
-    console.log(`🔍 Searching for "${title}" on Amazon...`);
-    const searchUrl = `https://api.rainforestapi.com/request?api_key=${this.rainforestApiKey}&type=search&amazon_domain=amazon.com&search_term=${encodeURIComponent(title)}`;
-    
-    const data = await this.httpGet(searchUrl);
-    
-    // Track Rainforest API cost
-    this.trackRainforestCost();
-    
-    if (!data.search_results || data.search_results.length === 0) {
-      throw new Error(`No results found for "${title}"`);
-    }
-    
-    return data.search_results;
   }
 
   /**
    * Search Anna's Archive directly by title or partial match
-   * Returns search results without using Rainforest API
+   * Returns JSON object with search results
    */
   async searchAnnasArchive(query, options = {}) {
     const {
@@ -866,7 +908,14 @@ export class SummaryForge {
       
       console.log(`✅ Found ${results.length} results`);
       
-      return results;
+      return {
+        success: true,
+        results,
+        count: results.length,
+        query,
+        options,
+        message: `Found ${results.length} results for "${query}"`
+      };
       
     } catch (error) {
       await browser.close();
@@ -878,7 +927,14 @@ export class SummaryForge {
         // Ignore cleanup errors
       }
       
-      throw new Error(`Failed to search Anna's Archive: ${error.message}`);
+      return {
+        success: false,
+        error: error.message,
+        results: [],
+        count: 0,
+        query,
+        options
+      };
     }
   }
 
@@ -911,7 +967,14 @@ export class SummaryForge {
     } = options;
 
     if (!this.enableProxy || !this.proxyUrl) {
-      throw new Error('Proxy configuration is required for 1lib.sk search');
+      return {
+        success: false,
+        error: 'Proxy configuration is required for 1lib.sk search',
+        results: [],
+        count: 0,
+        query,
+        options
+      };
     }
 
     console.log(`🔍 Searching 1lib.sk for "${query}"...`);
@@ -1086,7 +1149,14 @@ export class SummaryForge {
       
       console.log(`✅ Found ${results.length} results`);
       
-      return results;
+      return {
+        success: true,
+        results,
+        count: results.length,
+        query,
+        options,
+        message: `Found ${results.length} results for "${query}"`
+      };
       
     } catch (error) {
       await browser.close();
@@ -1098,7 +1168,14 @@ export class SummaryForge {
         // Ignore cleanup errors
       }
       
-      throw new Error(`Failed to search 1lib.sk: ${error.message}`);
+      return {
+        success: false,
+        error: error.message,
+        results: [],
+        count: 0,
+        query,
+        options
+      };
     }
   }
 
@@ -1110,7 +1187,7 @@ export class SummaryForge {
    * @param {Object} searchOptions - Search options (same as search1lib)
    * @param {string} outputDir - Directory to save the file
    * @param {Function} selectCallback - Async function that receives results and returns selected index
-   * @returns {Promise<Object>} { results, download } - Search results and download info
+   * @returns {Promise<Object>} JSON object with search results and download info
    */
   async search1libAndDownload(query, searchOptions = {}, outputDir = '.', selectCallback = null) {
     const {
@@ -1125,7 +1202,12 @@ export class SummaryForge {
     } = searchOptions;
 
     if (!this.enableProxy || !this.proxyUrl) {
-      throw new Error('Proxy configuration is required for 1lib.sk');
+      return {
+        success: false,
+        error: 'Proxy configuration is required for 1lib.sk',
+        results: [],
+        download: null
+      };
     }
 
     console.log(`🔍 Searching 1lib.sk for "${query}"...`);
@@ -1260,7 +1342,12 @@ export class SummaryForge {
       if (results.length === 0) {
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        return { results: [], download: null };
+        return {
+          success: true,
+          results: [],
+          download: null,
+          message: 'No results found'
+        };
       }
       
       console.log(`✅ Found ${results.length} results`);
@@ -1271,7 +1358,12 @@ export class SummaryForge {
       if (selectedIndex === null || selectedIndex === -1 || selectedIndex === undefined) {
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        return { results, download: null };
+        return {
+          success: true,
+          results,
+          download: null,
+          message: 'No book selected'
+        };
       }
       
       // Get selected book
@@ -1526,6 +1618,7 @@ export class SummaryForge {
       await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
       
       return {
+        success: true,
         results,
         download: {
           filepath,
@@ -1535,13 +1628,19 @@ export class SummaryForge {
           identifier,
           format: ext.replace('.', ''),
           converted: false
-        }
+        },
+        message: `Successfully downloaded "${finalTitle}"`
       };
       
     } catch (error) {
       await browser.close();
       await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-      throw new Error(`Failed: ${error.message}`);
+      return {
+        success: false,
+        error: error.message,
+        results: [],
+        download: null
+      };
     }
   }
 
