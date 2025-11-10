@@ -23,14 +23,20 @@ import {
  * Create SummaryForge instance with config from settings file
  */
 async function createForge() {
-  const config = await loadConfig();
+  const result = await loadConfig();
   
-  if (!config) {
+  if (!result.success || !result.config) {
     console.log(chalk.yellow('\n⚠️  No configuration found. Please run "summary setup" first.\n'));
     process.exit(1);
   }
   
-  return new SummaryForge(config);
+  if (!result.config.openaiApiKey) {
+    console.log(chalk.red('\n❌ Error: OpenAI API key is required'));
+    console.log(chalk.yellow('   Please run "summary setup" to configure your API keys.\n'));
+    process.exit(1);
+  }
+  
+  return new SummaryForge(result.config);
 }
 
 program
@@ -41,7 +47,8 @@ program
       console.log(chalk.blue.bold('\n🔧 Summary Forge - Configuration Setup\n'));
       
       // Check if config already exists
-      const existingConfig = await loadConfig();
+      const existingResult = await loadConfig();
+      const existingConfig = existingResult.success ? existingResult.config : null;
       
       if (existingConfig) {
         const { overwrite } = await inquirer.prompt([
@@ -179,9 +186,14 @@ program
       }
       
       // Save configuration
-      await saveConfig(config);
+      const saveResult = await saveConfig(config);
       
-      console.log(chalk.green(`\n✅ Configuration saved to ${getConfigPath()}`));
+      if (!saveResult.success) {
+        console.error(chalk.red(`\n❌ Failed to save configuration: ${saveResult.error}`));
+        process.exit(1);
+      }
+      
+      console.log(chalk.green(`\n✅ Configuration saved to ${saveResult.path}`));
       console.log(chalk.blue('\n💡 You can now use the CLI commands without environment variables.'));
       console.log(chalk.gray('   To update your configuration, run "summary setup" again.\n'));
       
@@ -201,12 +213,14 @@ program
     try {
       // Handle quick toggles
       if (options.headless !== undefined || options.proxy !== undefined) {
-        const config = await loadConfig();
+        const result = await loadConfig();
         
-        if (!config) {
+        if (!result.success || !result.config) {
           console.log(chalk.yellow('\n⚠️  No configuration found. Please run "summary setup" first.\n'));
           process.exit(1);
         }
+        
+        const config = result.config;
         
         if (options.headless !== undefined) {
           const headlessValue = options.headless === 'true' || options.headless === true;
@@ -249,20 +263,20 @@ program
         return;
       }
       
-      const config = await loadConfig();
+      const result = await loadConfig();
       
-      if (!config) {
+      if (!result.success || !result.config) {
         console.log(chalk.yellow('\n⚠️  No configuration found.'));
         console.log(chalk.blue('   Run "summary setup" to configure API keys.\n'));
         return;
       }
       
       console.log(chalk.blue.bold('\n📋 Current Configuration\n'));
-      console.log(chalk.gray(`Location: ${getConfigPath()}\n`));
+      console.log(chalk.gray(`Location: ${result.path || getConfigPath().path}\n`));
       
       // Mask sensitive values
       const displayConfig = {};
-      for (const [key, value] of Object.entries(config)) {
+      for (const [key, value] of Object.entries(result.config)) {
         if (typeof value === 'string' && value.length > 10 && key.toLowerCase().includes('key')) {
           displayConfig[key] = value.slice(0, 8) + '...' + value.slice(-4);
         } else {
@@ -297,7 +311,14 @@ program
   .option('-f, --force', 'Overwrite existing directory without prompting')
   .action(async (filePath, options) => {
     try {
-      const config = await loadConfig();
+      const result = await loadConfig();
+      
+      if (!result.success || !result.config) {
+        console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+        process.exit(1);
+      }
+      
+      const config = result.config;
       config.force = options.force || false;
       
       // Add prompt function for interactive mode
@@ -320,16 +341,16 @@ program
       }
       
       const forge = new SummaryForge(config);
-      const result = await forge.processFile(path.resolve(filePath));
+      const processResult = await forge.processFile(path.resolve(filePath));
       
-      console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+      console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
       
       // Display cost summary
       console.log(chalk.blue('\n💰 Cost Summary:'));
-      console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-      console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-      console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-      console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+      console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+      console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+      console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+      console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
     } catch (error) {
       console.error(chalk.red(`\n❌ Error: ${error.message}`));
       process.exit(1);
@@ -351,7 +372,14 @@ program
         process.exit(1);
       }
       
-      const config = await loadConfig();
+      const result = await loadConfig();
+      
+      if (!result.success || !result.config) {
+        console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+        process.exit(1);
+      }
+      
+      const config = result.config;
       config.force = options.force || false;
       
       // Add prompt function for interactive mode
@@ -377,19 +405,19 @@ program
       const forge = new SummaryForge(config);
       
       try {
-        const result = await forge.processWebPage(url);
+        const processResult = await forge.processWebPage(url);
         spinner.stop();
         
-        console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
-        console.log(chalk.blue(`📄 Page title: ${result.title}`));
-        console.log(chalk.cyan(`🔗 Source URL: ${result.url}`));
+        console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
+        console.log(chalk.blue(`📄 Page title: ${processResult.title}`));
+        console.log(chalk.cyan(`🔗 Source URL: ${processResult.url}`));
         
         // Display cost summary
         console.log(chalk.blue('\n💰 Cost Summary:'));
-        console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-        console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-        console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-        console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+        console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+        console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+        console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+        console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
       } catch (error) {
         spinner.stop();
         throw error;
@@ -433,7 +461,14 @@ program
     
     // Use 1lib.sk with single-session search+download
     try {
-      const config = await loadConfig();
+      const result = await loadConfig();
+      
+      if (!result.success || !result.config) {
+        console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+        process.exit(1);
+      }
+      
+      const config = result.config;
       config.force = false;
       
       config.promptFn = async (dirPath) => {
@@ -546,16 +581,16 @@ program
     
     if (shouldProcess) {
       spinner.start('Processing book...');
-      const result = await forge.processFile(download.filepath, download.identifier);
+      const processResult = await forge.processFile(download.filepath, download.identifier);
       spinner.stop();
-      console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+      console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
       
       // Display cost summary
       console.log(chalk.blue('\n💰 Cost Summary:'));
-      console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-      console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-      console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-      console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+      console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+      console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+      console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+      console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
     }
       
     } catch (error) {
@@ -684,7 +719,15 @@ program
       if (shouldDownload) {
         const downloadSpinner = ora('Downloading from 1lib.sk...').start();
         try {
-          const config = await loadConfig();
+          const result = await loadConfig();
+          
+          if (!result.success || !result.config) {
+            downloadSpinner.stop();
+            console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+            process.exit(1);
+          }
+          
+          const config = result.config;
           config.force = false; // Will prompt for directory overwrite
           
           // Add prompt function for interactive mode
@@ -721,16 +764,16 @@ program
           
           if (shouldProcess) {
             downloadSpinner.start('Processing book...');
-            const result = await forge.processFile(download.filepath, download.identifier);
+            const processResult = await forge.processFile(download.filepath, download.identifier);
             downloadSpinner.stop();
-            console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+            console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
             
             // Display cost summary
             console.log(chalk.blue('\n💰 Cost Summary:'));
-            console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-            console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-            console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-            console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+            console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+            console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+            console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+            console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
           }
         } catch (error) {
           downloadSpinner.stop();
@@ -760,7 +803,14 @@ program
     
     // Use 1lib.sk with single-session search+download (same as search command)
     try {
-      const config = await loadConfig();
+      const configResult = await loadConfig();
+      
+      if (!configResult.success || !configResult.config) {
+        console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+        process.exit(1);
+      }
+      
+      const config = configResult.config;
       config.force = options.force || false;
       
       config.promptFn = async (dirPath) => {
@@ -870,16 +920,16 @@ program
       
       if (shouldProcess) {
         spinner.start('Processing book...');
-        const result = await forge.processFile(download.filepath, download.identifier);
+        const processResult = await forge.processFile(download.filepath, download.identifier);
         spinner.stop();
-        console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+        console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
         
         // Display cost summary
         console.log(chalk.blue('\n💰 Cost Summary:'));
-        console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-        console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-        console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-        console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+        console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+        console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+        console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+        console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
       }
     } catch (error) {
       console.error(chalk.red(`\n❌ Error: ${error.message}`));
@@ -927,17 +977,17 @@ program
 
         const spinner = ora('Processing book...').start();
         const forge = await createForge();
-        const result = await forge.processFile(path.resolve(filePath));
+        const processResult = await forge.processFile(path.resolve(filePath));
         spinner.stop();
         
-        console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+        console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
         
         // Display cost summary
         console.log(chalk.blue('\n💰 Cost Summary:'));
-        console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-        console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-        console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-        console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+        console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+        console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+        console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+        console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
       } else if (mode === 'url') {
         const { url } = await inquirer.prompt([
           {
@@ -959,19 +1009,19 @@ program
         const forge = await createForge();
         
         try {
-          const result = await forge.processWebPage(url);
+          const processResult = await forge.processWebPage(url);
           spinner.stop();
           
-          console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
-          console.log(chalk.blue(`📄 Page title: ${result.title}`));
-          console.log(chalk.cyan(`🔗 Source URL: ${result.url}`));
+          console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
+          console.log(chalk.blue(`📄 Page title: ${processResult.title}`));
+          console.log(chalk.cyan(`🔗 Source URL: ${processResult.url}`));
           
           // Display cost summary
           console.log(chalk.blue('\n💰 Cost Summary:'));
-          console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-          console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-          console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-          console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+          console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+          console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+          console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+          console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
         } catch (error) {
           spinner.stop();
           throw error;
@@ -1031,16 +1081,16 @@ program
           
           if (shouldProcess) {
             spinner.start('Processing book...');
-            const result = await forge.processFile(download.filepath, download.asin);
+            const processResult = await forge.processFile(download.filepath, download.asin);
             spinner.stop();
-            console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+            console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
             
             // Display cost summary
             console.log(chalk.blue('\n💰 Cost Summary:'));
-            console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-            console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-            console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-            console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+            console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+            console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+            console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+            console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
           }
         } catch (error) {
           spinner.stop();
@@ -1076,16 +1126,16 @@ program
           
           if (shouldProcess) {
             spinner.start('Processing book...');
-            const result = await forge.processFile(download.filepath, download.asin);
+            const processResult = await forge.processFile(download.filepath, download.asin);
             spinner.stop();
-            console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+            console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
             
             // Display cost summary
             console.log(chalk.blue('\n💰 Cost Summary:'));
-            console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-            console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-            console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-            console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+            console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+            console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+            console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+            console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
           }
         } catch (error) {
           spinner.stop();
@@ -1101,7 +1151,14 @@ program
 // Helper function for 1lib.sk search and display
 async function search1libAndDisplay(title, force = false) {
   try {
-    const config = await loadConfig();
+    const configResult = await loadConfig();
+    
+    if (!configResult.success || !configResult.config) {
+      console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+      process.exit(1);
+    }
+    
+    const config = configResult.config;
     config.force = force;
     
     if (!force) {
@@ -1209,16 +1266,16 @@ async function search1libAndDisplay(title, force = false) {
     
     if (shouldProcess) {
       spinner.start('Processing book...');
-      const result = await forge.processFile(download.filepath, download.identifier);
+      const processResult = await forge.processFile(download.filepath, download.identifier);
       spinner.stop();
-      console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+      console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
       
       // Display cost summary
       console.log(chalk.blue('\n💰 Cost Summary:'));
-      console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-      console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-      console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-      console.log(chalk.yellow(`   Total:              ${result.costs.total}\n`));
+      console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+      console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+      console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+      console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
     }
   } catch (error) {
     console.error(chalk.red(`\n❌ Error: ${error.message}`));
@@ -1294,16 +1351,16 @@ async function searchAndDisplay(title, force = false) {
       
       if (shouldProcess) {
         downloadSpinner.start('Processing book...');
-        const result = await forge.processFile(download.filepath, download.asin);
+        const processResult = await forge.processFile(download.filepath, download.asin);
         downloadSpinner.stop();
-        console.log(chalk.green(`\n✨ Summary complete! Archive: ${result.archive}`));
+        console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
         
         // Display cost summary
         console.log(chalk.blue('\n💰 Cost Summary:'));
-        console.log(chalk.white(`   OpenAI (GPT-5):     ${result.costs.openai}`));
-        console.log(chalk.white(`   ElevenLabs (TTS):   ${result.costs.elevenlabs}`));
-        console.log(chalk.white(`   Rainforest API:     ${result.costs.rainforest}`));
-        console.log(chalk.yellow(`   Total:              ${result.costs.total}`));
+        console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
+        console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
+        console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
+        console.log(chalk.yellow(`   Total:              ${processResult.costs.total}`));
         
         // Show Amazon affiliate link at the end
         console.log(chalk.blue('\n🛒 Buy on Amazon (affiliate link):'));
