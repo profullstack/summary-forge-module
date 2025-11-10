@@ -318,7 +318,7 @@ program
         process.exit(1);
       }
       
-      const config = result.config;
+      const config = { ...result.config };  // Create a copy to avoid mutating original
       config.force = options.force || false;
       
       // Add prompt function for interactive mode
@@ -385,7 +385,7 @@ program
         process.exit(1);
       }
       
-      const config = result.config;
+      const config = { ...result.config };  // Create a copy to avoid mutating original
       config.force = options.force || false;
       
       // Add prompt function for interactive mode
@@ -474,7 +474,7 @@ program
         process.exit(1);
       }
       
-      const config = result.config;
+      const config = { ...result.config };  // Create a copy to avoid mutating original
       config.force = false;
       
       config.promptFn = async (dirPath) => {
@@ -745,7 +745,7 @@ program
             process.exit(1);
           }
           
-          const config = result.config;
+          const config = { ...result.config };  // Create a copy to avoid mutating original
           config.force = false; // Will prompt for directory overwrite
           
           // Add prompt function for interactive mode
@@ -828,7 +828,7 @@ program
         process.exit(1);
       }
       
-      const config = configResult.config;
+      const config = { ...configResult.config };  // Create a copy to avoid mutating original
       config.force = options.force || false;
       
       config.promptFn = async (dirPath) => {
@@ -1176,7 +1176,7 @@ async function search1libAndDisplay(title, force = false) {
       process.exit(1);
     }
     
-    const config = configResult.config;
+    const config = { ...configResult.config };  // Create a copy to avoid mutating original
     config.force = force;
     
     if (!force) {

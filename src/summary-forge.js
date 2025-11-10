@@ -2507,7 +2507,7 @@ export class SummaryForge {
 
       // Clean up uploaded file
       try {
-        await this.openai.files.del(file.id);
+        await this.openai.files.delete(file.id);
         console.log(`🗑️  Cleaned up uploaded file`);
       } catch (cleanupError) {
         console.log(`⚠️  Warning: Could not delete uploaded file: ${cleanupError.message}`);
@@ -2978,13 +2978,18 @@ export class SummaryForge {
     
     if (this.elevenlabs) {
       // Generate audio script
-      const script = await this.generateAudioScript(markdown);
-      await fsp.writeFile(audioScript, script, "utf8");
-      audioScriptPath = audioScript;
-      console.log(`✅ Wrote audio script: ${audioScript}`);
-      
-      // Generate audio from script
-      audioPath = await this.generateAudio(script, summaryMp3);
+      const scriptResult = await this.generateAudioScript(markdown);
+      if (scriptResult.success && scriptResult.script) {
+        await fsp.writeFile(audioScript, scriptResult.script, "utf8");
+        audioScriptPath = audioScript;
+        console.log(`✅ Wrote audio script: ${audioScript}`);
+        
+        // Generate audio from script
+        const audioResult = await this.generateAudio(scriptResult.script, summaryMp3);
+        if (audioResult.success && audioResult.path) {
+          audioPath = audioResult.path;
+        }
+      }
     }
 
     // Generate flashcards MD and PDF
@@ -3159,7 +3164,7 @@ export class SummaryForge {
 
       // Clean up uploaded file
       try {
-        await this.openai.files.del(file.id);
+        await this.openai.files.delete(file.id);
         console.log(`🗑️  Cleaned up uploaded file`);
       } catch (cleanupError) {
         console.log(`⚠️  Warning: Could not delete uploaded file: ${cleanupError.message}`);
