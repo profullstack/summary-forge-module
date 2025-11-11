@@ -46,6 +46,9 @@ export class SummaryForge {
     this.proxyPassword = config.proxyPassword;
     this.proxyPoolSize = config.proxyPoolSize ?? 36; // Default to 36 if not specified
     
+    // Custom Puppeteer launch options (allows environment-specific overrides)
+    this.puppeteerLaunchOptions = config.puppeteerLaunchOptions ?? null;
+    
     // Directory overwrite protection
     this.force = config.force ?? false;
     this.promptFn = config.promptFn ?? null; // For interactive prompts
@@ -796,28 +799,33 @@ export class SummaryForge {
     
     const userDataDir = `./puppeteer_search_${sessionId}_${Date.now()}`;
     
-    const browser = await puppeteer.launch({
+    // Default Docker-safe launch options
+    const defaultLaunchOptions = {
       headless: this.headless,
       args: [
         `--proxy-server=${proxyHost}:${proxyPort}`,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
         '--disable-background-networking',
-        '--disable-crash-reporter',
         '--disable-breakpad',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-software-rasterizer',
+        '--disable-crash-reporter',
+        '--user-data-dir=/tmp/chrome-user-data',
+        '--data-path=/tmp/chrome-user-data',
+        '--disk-cache-dir=/tmp/chrome-cache',
       ],
-      userDataDir,
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    };
+    
+    // Merge with custom options if provided
+    const launchOptions = this.puppeteerLaunchOptions
+      ? { ...defaultLaunchOptions, ...this.puppeteerLaunchOptions }
+      : defaultLaunchOptions;
+    
+    const browser = await puppeteer.launch(launchOptions);
     
     try {
       const page = await browser.newPage();
@@ -1048,28 +1056,32 @@ export class SummaryForge {
     
     const userDataDir = `./puppeteer_1lib_${sessionId}_${Date.now()}`;
     
-    const browser = await puppeteer.launch({
+    // Default Docker-safe launch options
+    const defaultLaunchOptions = {
       headless: this.headless,
       args: [
         `--proxy-server=${proxyHost}:${proxyPort}`,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
         '--disable-background-networking',
-        '--disable-crash-reporter',
         '--disable-breakpad',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-software-rasterizer',
+        '--disable-crash-reporter',
+        '--user-data-dir=/tmp/chrome-user-data',
+        '--data-path=/tmp/chrome-user-data',
+        '--disk-cache-dir=/tmp/chrome-cache',
       ],
-      userDataDir,
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    };
+    
+    const launchOptions = this.puppeteerLaunchOptions
+      ? { ...defaultLaunchOptions, ...this.puppeteerLaunchOptions }
+      : defaultLaunchOptions;
+    
+    const browser = await puppeteer.launch(launchOptions);
     
     try {
       const page = await browser.newPage();
@@ -1282,28 +1294,32 @@ export class SummaryForge {
     
     const userDataDir = `./puppeteer_1lib_combined_${sessionId}_${Date.now()}`;
     
-    const browser = await puppeteer.launch({
+    // Default Docker-safe launch options
+    const defaultLaunchOptions = {
       headless: this.headless,
       args: [
         `--proxy-server=${proxyHost}:${proxyPort}`,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
         '--disable-background-networking',
-        '--disable-crash-reporter',
         '--disable-breakpad',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-software-rasterizer',
+        '--disable-crash-reporter',
+        '--user-data-dir=/tmp/chrome-user-data',
+        '--data-path=/tmp/chrome-user-data',
+        '--disk-cache-dir=/tmp/chrome-cache',
       ],
-      userDataDir,
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    };
+    
+    const launchOptions = this.puppeteerLaunchOptions
+      ? { ...defaultLaunchOptions, ...this.puppeteerLaunchOptions }
+      : defaultLaunchOptions;
+    
+    const browser = await puppeteer.launch(launchOptions);
     
     try {
       const page = await browser.newPage();
@@ -1730,28 +1746,32 @@ export class SummaryForge {
     
     const userDataDir = `./puppeteer_1lib_download_${sessionId}_${Date.now()}`;
     
-    const browser = await puppeteer.launch({
+    // Default Docker-safe launch options
+    const defaultLaunchOptions = {
       headless: this.headless,
       args: [
         `--proxy-server=${proxyHost}:${proxyPort}`,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
         '--disable-background-networking',
-        '--disable-crash-reporter',
         '--disable-breakpad',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-software-rasterizer',
+        '--disable-crash-reporter',
+        '--user-data-dir=/tmp/chrome-user-data',
+        '--data-path=/tmp/chrome-user-data',
+        '--disk-cache-dir=/tmp/chrome-cache',
       ],
-      userDataDir,
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    };
+    
+    const launchOptions = this.puppeteerLaunchOptions
+      ? { ...defaultLaunchOptions, ...this.puppeteerLaunchOptions }
+      : defaultLaunchOptions;
+    
+    const browser = await puppeteer.launch(launchOptions);
     
     try {
       const page = await browser.newPage();
@@ -1981,28 +2001,32 @@ export class SummaryForge {
     // Use a unique profile per session to avoid conflicts between runs
     const userDataDir = `./puppeteer_ddg_profile_${sessionId}_${Date.now()}`;
     
-    const browser = await puppeteer.launch({
+    // Default Docker-safe launch options
+    const defaultLaunchOptions = {
       headless: this.headless,
       args: [
         `--proxy-server=${proxyHost}:${proxyPort}`,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
         '--no-first-run',
         '--no-zygote',
-        '--disable-gpu',
         '--disable-background-networking',
-        '--disable-crash-reporter',
         '--disable-breakpad',
-        '--disable-features=VizDisplayCompositor',
-        '--disable-software-rasterizer',
+        '--disable-crash-reporter',
+        '--user-data-dir=/tmp/chrome-user-data',
+        '--data-path=/tmp/chrome-user-data',
+        '--disk-cache-dir=/tmp/chrome-cache',
       ],
-      userDataDir,
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      ignoreDefaultArgs: ['--enable-automation'],
-    });
+    };
+    
+    const launchOptions = this.puppeteerLaunchOptions
+      ? { ...defaultLaunchOptions, ...this.puppeteerLaunchOptions }
+      : defaultLaunchOptions;
+    
+    const browser = await puppeteer.launch(launchOptions);
     
     // Handle Ctrl-C to close browser gracefully
     const cleanup = async () => {

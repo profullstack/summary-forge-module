@@ -96,19 +96,17 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--disable-gpu',
       '--disable-background-networking',
-      '--disable-crash-reporter',
       '--disable-breakpad',
-      '--disable-features=VizDisplayCompositor',
-      '--disable-software-rasterizer',
+      '--disable-crash-reporter',
+      '--user-data-dir=/tmp/chrome-user-data',
+      '--data-path=/tmp/chrome-user-data',
+      '--disk-cache-dir=/tmp/chrome-cache',
     ],
     defaultViewport: { width: 1200, height: 800 },
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-    ignoreDefaultArgs: ['--enable-automation'],
   };
   
   // Add proxy if provided
