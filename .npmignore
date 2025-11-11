@@ -10,6 +10,17 @@ test/
 .env
 .env.*
 
+# Generated content and uploads
+uploads/
+puppeteer_*/
+output.mp3
+page.html
+page.preview.txt
+page.title.txt
+flashcards-demo.pdf
+titles.txt
+todo.txt
+
 # Documentation
 *.md
 !README.md
