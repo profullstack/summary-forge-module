@@ -4,8 +4,8 @@
  * Utilities for fetching, sanitizing, and converting web pages to PDF
  */
 
-// Use regular puppeteer to avoid DOMMatrix errors in Next.js
-import puppeteer from 'puppeteer';
+// Use puppeteer-core to avoid Canvas/DOMMatrix dependencies
+import puppeteer from 'puppeteer-core';
 
 /**
  * Extract main content from HTML by removing navigation, ads, footers, etc.

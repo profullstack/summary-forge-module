@@ -2,8 +2,8 @@
  * Browser utilities for DDoS-Guard bypass and web scraping
  */
 
-// Use regular puppeteer to avoid DOMMatrix errors in Next.js
-import puppeteer from 'puppeteer';
+// Use puppeteer-core to avoid Canvas/DOMMatrix dependencies
+import puppeteer from 'puppeteer-core';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
