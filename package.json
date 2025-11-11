@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/summary-forge-module",
-  "version": "1.7.5",
+  "version": "1.7.6",
   "description": "An intelligent tool that uses AI to create comprehensive summaries of technical books",
   "type": "module",
   "main": "./src/index.js",
@@ -54,10 +54,7 @@
     "pdf-parse": "^2.4.5",
     "pdfkit": "^0.17.2",
     "proxy-chain": "^2.5.9",
-    "puppeteer": "^23.11.1",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-proxy": "^1.0.2",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer": "^23.11.1"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",
