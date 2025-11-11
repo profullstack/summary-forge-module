@@ -1,0 +1,29 @@
+# Test files
+test-*.js
+test/
+*.test.js
+
+# Development files
+.git
+.gitignore
+.rooignore
+.env
+.env.*
+
+# Documentation
+*.md
+!README.md
+
+# Build artifacts
+node_modules/
+.next/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+*.log
+.DS_Store
