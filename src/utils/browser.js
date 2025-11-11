@@ -2,12 +2,10 @@
  * Browser utilities for DDoS-Guard bypass and web scraping
  */
 
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+// Use regular puppeteer to avoid DOMMatrix errors in Next.js
+import puppeteer from 'puppeteer';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-
-puppeteer.use(StealthPlugin());
 
 /**
  * Write debug artifacts

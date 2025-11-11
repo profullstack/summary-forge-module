@@ -10,10 +10,9 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import OpenAI from "openai";
 import { ElevenLabsClient } from "elevenlabs";
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-
-puppeteer.use(StealthPlugin());
+// Use regular puppeteer instead of puppeteer-extra to avoid DOMMatrix errors
+// The stealth plugin causes issues in Next.js/server environments
+import puppeteer from 'puppeteer';
 import { PDFParse } from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize } from "./utils/pdf-chunker.js";

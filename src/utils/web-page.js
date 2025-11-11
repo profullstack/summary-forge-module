@@ -4,10 +4,8 @@
  * Utilities for fetching, sanitizing, and converting web pages to PDF
  */
 
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-
-puppeteer.use(StealthPlugin());
+// Use regular puppeteer to avoid DOMMatrix errors in Next.js
+import puppeteer from 'puppeteer';
 
 /**
  * Extract main content from HTML by removing navigation, ads, footers, etc.
