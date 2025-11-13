@@ -3320,15 +3320,15 @@ export class SummaryForge {
    * @returns {Promise<Object>} JSON object with processing result
    */
   async processWebPage(url, outputDir = '.') {
-    try {
-      console.log(`🌐 Processing web page: ${url}`);
+    console.log(`🌐 Processing web page: ${url}`);
     
     // Fetch web page and save as PDF
     const webPageResult = await fetchWebPageAsPdf(url, null, {
       headless: this.headless,
       proxyUrl: this.enableProxy ? this.proxyUrl : null,
       proxyUsername: this.enableProxy ? this.proxyUsername : null,
-      proxyPassword: this.enableProxy ? this.proxyPassword : null
+      proxyPassword: this.enableProxy ? this.proxyPassword : null,
+      puppeteerLaunchOptions: this.puppeteerLaunchOptions
     });
     
     const { title: rawTitle, pdfPath: tempPdfPath, url: pageUrl } = webPageResult;
@@ -3463,32 +3463,23 @@ export class SummaryForge {
       process.chdir(originalCwd);
     }
     
-      // Play terminal beep to signal completion
-      process.stdout.write('\x07');
-      
-      return {
-        success: true,
-        basename: sanitizedTitle,
-        dirName,
-        markdown,
-        files,
-        directory: webPageDir,
-        archive: archiveName,
-        hasAudio: !!outputs.summaryMp3,
-        url: pageUrl,
-        title: finalTitle,
-        costs: this.getCostSummary(),
-        message: `Successfully processed web page: ${finalTitle}`
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        basename: null,
-        directory: null,
-        url
-      };
-    }
+    // Play terminal beep to signal completion
+    process.stdout.write('\x07');
+    
+    return {
+      success: true,
+      basename: sanitizedTitle,
+      dirName,
+      markdown,
+      files,
+      directory: webPageDir,
+      archive: archiveName,
+      hasAudio: !!outputs.summaryMp3,
+      url: pageUrl,
+      title: finalTitle,
+      costs: this.getCostSummary(),
+      message: `Successfully processed web page: ${finalTitle}`
+    };
   }
 
   /**

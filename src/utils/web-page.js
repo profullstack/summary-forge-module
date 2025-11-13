@@ -75,6 +75,7 @@ export function extractTextFromHtml(html) {
  * @param {string} options.proxyUrl - Proxy URL (optional)
  * @param {string} options.proxyUsername - Proxy username (optional)
  * @param {string} options.proxyPassword - Proxy password (optional)
+ * @param {Object} options.puppeteerLaunchOptions - Custom Puppeteer launch options (optional)
  * @returns {Promise<Object>} Result with title, html, and pdf path
  */
 export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
@@ -82,13 +83,14 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
     headless = true,
     proxyUrl = null,
     proxyUsername = null,
-    proxyPassword = null
+    proxyPassword = null,
+    puppeteerLaunchOptions = null
   } = options;
   
   console.log(`🌐 Fetching web page: ${url}`);
   
-  // Browser launch options with Docker-safe arguments
-  const launchOptions = {
+  // Default Docker-safe launch options
+  const defaultLaunchOptions = {
     headless,
     args: [
       '--no-sandbox',
@@ -104,8 +106,19 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
       '--disk-cache-dir=/tmp/chrome-cache',
     ],
     defaultViewport: { width: 1200, height: 800 },
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+    // Use PUPPETEER_EXECUTABLE_PATH if set (Puppeteer Docker image sets this)
+    // Otherwise try common paths
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH ||
+                   '/usr/bin/google-chrome-stable' ||
+                   '/usr/bin/google-chrome' ||
+                   '/usr/bin/chromium-browser' ||
+                   '/usr/bin/chromium',
   };
+  
+  // Merge with custom options if provided
+  const launchOptions = puppeteerLaunchOptions
+    ? { ...defaultLaunchOptions, ...puppeteerLaunchOptions }
+    : defaultLaunchOptions;
   
   // Add proxy if provided
   if (proxyUrl) {
