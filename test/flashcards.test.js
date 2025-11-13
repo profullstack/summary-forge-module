@@ -4,7 +4,7 @@
  * Tests for extracting Q&A pairs from markdown and generating printable flashcard PDFs
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { extractFlashcards, generateFlashcardsPDF, generateFlashcardImages } from '../src/flashcards.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -123,7 +123,22 @@ A: It's \`code\` and [links](http://example.com) that should be cleaned.
     const testPdfPath = path.join(testOutputDir, 'test-flashcards.pdf');
 
     beforeEach(async () => {
+      // Clean up and recreate test directory
+      try {
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      } catch (err) {
+        // Ignore if doesn't exist
+      }
       await fs.mkdir(testOutputDir, { recursive: true });
+    });
+
+    afterEach(async () => {
+      // Clean up after tests
+      try {
+        await fs.rm(testOutputDir, { recursive: true, force: true });
+      } catch (err) {
+        // Ignore cleanup errors
+      }
     });
 
     it('should generate a PDF file with flashcards', async () => {
@@ -189,10 +204,25 @@ A: It's \`code\` and [links](http://example.com) that should be cleaned.
   });
 
   describe('generateFlashcardImages', () => {
-    const testOutputDir = './test-output/flashcards';
+    const testOutputDir = './test-output-images/flashcards';
 
     beforeEach(async () => {
+      // Clean up and recreate test directory
+      try {
+        await fs.rm('./test-output-images', { recursive: true, force: true });
+      } catch (err) {
+        // Ignore if doesn't exist
+      }
       await fs.mkdir(testOutputDir, { recursive: true });
+    });
+
+    afterEach(async () => {
+      // Clean up after tests
+      try {
+        await fs.rm('./test-output-images', { recursive: true, force: true });
+      } catch (err) {
+        // Ignore cleanup errors
+      }
     });
 
     it('should generate PNG images for each flashcard', async () => {
@@ -205,6 +235,12 @@ A: It's \`code\` and [links](http://example.com) that should be cleaned.
         title: 'Test Book',
         branding: 'SummaryForge.com'
       });
+
+      // If generation failed, log the error for debugging
+      if (!result.success) {
+        console.error('Image generation failed:', result.error);
+        console.error('Full result:', result);
+      }
 
       expect(result.success).toBe(true);
       expect(result.count).toBe(2);
@@ -274,6 +310,12 @@ A: It's \`code\` and [links](http://example.com) that should be cleaned.
         height: 600,
         title: 'Custom Size Book'
       });
+
+      // If generation failed, log the error for debugging
+      if (!result.success) {
+        console.error('Image generation failed:', result.error);
+        console.error('Full result:', result);
+      }
 
       expect(result.success).toBe(true);
       expect(result.count).toBe(1);

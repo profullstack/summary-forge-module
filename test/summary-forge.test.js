@@ -8,12 +8,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SummaryForge } from '../src/summary-forge.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'os';
 
 describe('SummaryForge', () => {
   let forge;
+  let testDir;
   const testApiKey = 'test-openai-key';
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Create temp directory for tests
+    testDir = path.join(tmpdir(), `summary-forge-test-${Date.now()}`);
+    await fs.mkdir(testDir, { recursive: true });
+    
     // Create a new instance for each test
     forge = new SummaryForge({
       openaiApiKey: testApiKey,
@@ -23,11 +29,11 @@ describe('SummaryForge', () => {
   });
 
   afterEach(async () => {
-    // Cleanup only test-generated directories (uploads/file)
+    // Cleanup test directory
     try {
-      await fs.rm('./uploads/file', { recursive: true, force: true });
+      await fs.rm(testDir, { recursive: true, force: true });
     } catch (err) {
-      // Ignore if doesn't exist
+      // Ignore cleanup errors
     }
   });
 
@@ -182,7 +188,7 @@ describe('SummaryForge', () => {
     });
 
     it('should return error JSON for invalid file paths', async () => {
-      const result = await forge.processFile('/nonexistent/path/file.pdf');
+      const result = await forge.processFile(path.join(testDir, 'nonexistent', 'file.pdf'));
       
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();

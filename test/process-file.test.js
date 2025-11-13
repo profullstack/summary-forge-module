@@ -88,7 +88,7 @@ describe('SummaryForge.processFile with SSE', () => {
 
     it('should emit error event on failure', async () => {
       try {
-        await forge.processFile('/nonexistent/file.pdf');
+        await forge.processFile(path.join(testDir, 'nonexistent.pdf'));
       } catch (error) {
         // Expected to fail
       }

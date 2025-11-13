@@ -6,10 +6,30 @@
  * Testing Framework: Vitest
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SummaryForge } from '../src/summary-forge.js';
+import fs from 'fs/promises';
+import path from 'path';
+import { tmpdir } from 'os';
 
 describe('CLI Error Handling', () => {
+  let testDir;
+
+  beforeEach(async () => {
+    // Create temp directory for tests
+    testDir = path.join(tmpdir(), `cli-test-${Date.now()}`);
+    await fs.mkdir(testDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    // Clean up test directory
+    try {
+      await fs.rm(testDir, { recursive: true, force: true });
+    } catch (err) {
+      // Ignore cleanup errors
+    }
+  });
+
   describe('processFile() result validation', () => {
     it('should return success=false when processing fails', async () => {
       // Create a forge instance with minimal config
@@ -17,8 +37,8 @@ describe('CLI Error Handling', () => {
         openaiApiKey: 'test-key-123'
       });
       
-      // Try to process a non-existent file
-      const result = await forge.processFile('/nonexistent/file.pdf');
+      // Try to process a non-existent file (use temp dir to avoid creating uploads/)
+      const result = await forge.processFile(path.join(testDir, 'nonexistent.pdf'));
       
       expect(result).toBeDefined();
       expect(result.success).toBe(false);
@@ -31,7 +51,7 @@ describe('CLI Error Handling', () => {
         openaiApiKey: 'test-key-123'
       });
       
-      const result = await forge.processFile('/nonexistent/file.pdf');
+      const result = await forge.processFile(path.join(testDir, 'nonexistent.pdf'));
       
       // Verify the result has the expected structure
       expect(result).toHaveProperty('success');
@@ -50,7 +70,7 @@ describe('CLI Error Handling', () => {
       });
       
       // Try to process an unsupported file type
-      const result = await forge.processFile('test.txt');
+      const result = await forge.processFile(path.join(testDir, 'test.txt'));
       
       expect(result.success).toBe(false);
       expect(result.error).toContain('Unsupported file type');
@@ -195,7 +215,7 @@ describe('CLI Error Handling', () => {
         openaiApiKey: 'test-key-123'
       });
       
-      const result = await forge.processFile('/path/to/nonexistent.pdf');
+      const result = await forge.processFile(path.join(testDir, 'nonexistent.pdf'));
       
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
@@ -207,7 +227,7 @@ describe('CLI Error Handling', () => {
         openaiApiKey: 'test-key-123'
       });
       
-      const result = await forge.processFile('document.docx');
+      const result = await forge.processFile(path.join(testDir, 'document.docx'));
       
       expect(result.success).toBe(false);
       expect(result.error).toContain('Unsupported file type');
@@ -221,7 +241,7 @@ describe('CLI Error Handling', () => {
         openaiApiKey: 'test-key-123'
       });
       
-      const result = await forge.processFile('/nonexistent.pdf');
+      const result = await forge.processFile(path.join(testDir, 'nonexistent.pdf'));
       
       expect(result).toBeDefined();
       expect(typeof result).toBe('object');
@@ -233,7 +253,7 @@ describe('CLI Error Handling', () => {
         openaiApiKey: 'test-key-123'
       });
       
-      const result = await forge.processFile('/nonexistent.pdf');
+      const result = await forge.processFile(path.join(testDir, 'nonexistent.pdf'));
       
       expect(result).toHaveProperty('success');
       expect(typeof result.success).toBe('boolean');
@@ -244,7 +264,7 @@ describe('CLI Error Handling', () => {
         openaiApiKey: 'test-key-123'
       });
       
-      const result = await forge.processFile('/nonexistent.pdf');
+      const result = await forge.processFile(path.join(testDir, 'nonexistent.pdf'));
       
       if (!result.success) {
         expect(result).toHaveProperty('error');

@@ -3658,6 +3658,21 @@ export class SummaryForge {
     const basename = this.sanitizeFilename(path.basename(filePath));
     this.logger.log(`Basename: ${basename}`);
     
+    // Generate summary first (this will fail if file doesn't exist)
+    this.logger.progress(3, "Generating summary from PDF", { step: 'summary_generation' });
+    const summaryResult = await this.generateSummary(pdfPath);
+    if (!summaryResult.success) {
+      this.logger.error("Summary generation failed", new Error(summaryResult.error));
+      return {
+        success: false,
+        error: summaryResult.error,
+        basename,
+        directory: null
+      };
+    }
+    const markdown = summaryResult.markdown;
+    
+    // Only create directory after successful summary generation
     // Determine if file is already in an uploads directory (from downloadFromAnnasArchive)
     const isInUploadsDir = filePath.includes(path.join('uploads', path.sep));
     
@@ -3681,19 +3696,6 @@ export class SummaryForge {
       await fsp.mkdir(bookDir, { recursive: true });
       this.logger.log(`Created directory: ${bookDir}`);
     }
-    
-    this.logger.progress(3, "Generating summary from PDF", { step: 'summary_generation' });
-    const summaryResult = await this.generateSummary(pdfPath);
-    if (!summaryResult.success) {
-      this.logger.error("Summary generation failed", new Error(summaryResult.error));
-      return {
-        success: false,
-        error: summaryResult.error,
-        basename,
-        directory: bookDir
-      };
-    }
-    const markdown = summaryResult.markdown;
     
     // Generate output files using basename WITHOUT ASIN
     this.logger.progress(96, "Generating output files", { step: 'output_generation' });
