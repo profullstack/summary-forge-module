@@ -75,6 +75,7 @@ export function extractTextFromHtml(html) {
  * @param {string} options.proxyUrl - Proxy URL (optional)
  * @param {string} options.proxyUsername - Proxy username (optional)
  * @param {string} options.proxyPassword - Proxy password (optional)
+ * @param {number} options.proxyPoolSize - Proxy pool size for sticky sessions (default: 36)
  * @param {Object} options.puppeteerLaunchOptions - Custom Puppeteer launch options (optional)
  * @returns {Promise<Object>} Result with title, html, and pdf path
  */
@@ -84,6 +85,7 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
     proxyUrl = null,
     proxyUsername = null,
     proxyPassword = null,
+    proxyPoolSize = 36,
     puppeteerLaunchOptions = null
   } = options;
   
@@ -120,13 +122,23 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
     ? { ...defaultLaunchOptions, ...puppeteerLaunchOptions }
     : defaultLaunchOptions;
   
-  // Add proxy if provided
+  // Add proxy if provided (with session-based authentication like other methods)
+  let finalProxyUsername = proxyUsername;
   if (proxyUrl) {
     const proxyUrlObj = new URL(proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
     launchOptions.args.push(`--proxy-server=${proxyHost}:${proxyPort}`);
-    console.log(`🔒 Using proxy: ${proxyHost}:${proxyPort}`);
+    
+    // Use session-based proxy username (same pattern as downloadFromAnnasArchive)
+    // Session ID must be between 1-proxyPoolSize for Webshare sticky sessions
+    const sessionId = Math.floor(Math.random() * proxyPoolSize) + 1;
+    if (proxyUsername) {
+      finalProxyUsername = `${proxyUsername}-${sessionId}`;
+      console.log(`🔒 Using proxy session ${sessionId} (${finalProxyUsername}@${proxyHost}:${proxyPort})`);
+    } else {
+      console.log(`🔒 Using proxy: ${proxyHost}:${proxyPort}`);
+    }
   }
   
   const browser = await puppeteer.launch(launchOptions);
@@ -139,9 +151,14 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     );
     
-    // Set proxy authentication if provided
-    if (proxyUrl && proxyUsername && proxyPassword) {
-      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+    // Set extra headers
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9',
+    });
+    
+    // Set proxy authentication if provided (with session-based username)
+    if (proxyUrl && finalProxyUsername && proxyPassword) {
+      await page.authenticate({ username: finalProxyUsername, password: proxyPassword });
     }
     
     // Navigate to URL

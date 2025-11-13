@@ -3328,6 +3328,7 @@ export class SummaryForge {
       proxyUrl: this.enableProxy ? this.proxyUrl : null,
       proxyUsername: this.enableProxy ? this.proxyUsername : null,
       proxyPassword: this.enableProxy ? this.proxyPassword : null,
+      proxyPoolSize: this.proxyPoolSize,
       puppeteerLaunchOptions: this.puppeteerLaunchOptions
     });
     
