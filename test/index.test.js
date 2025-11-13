@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import * as SummaryForgeModule from '../src/index.js';
 import {
   SummaryForge,
+  SSELogger,
   extractFlashcards,
   generateFlashcardsPDF,
   loadConfig,
@@ -60,6 +61,12 @@ describe('Module Interface (src/index.js)', () => {
       expect(deleteConfig).toBeDefined();
       expect(typeof deleteConfig).toBe('function');
     });
+
+    it('should export SSELogger class', () => {
+      expect(SSELogger).toBeDefined();
+      expect(typeof SSELogger).toBe('function');
+      expect(SSELogger.name).toBe('SSELogger');
+    });
   });
 
   describe('Default Export', () => {
@@ -85,6 +92,7 @@ describe('Module Interface (src/index.js)', () => {
       const exports = Object.keys(SummaryForgeModule);
       
       expect(exports).toContain('SummaryForge');
+      expect(exports).toContain('SSELogger');
       expect(exports).toContain('extractFlashcards');
       expect(exports).toContain('generateFlashcardsPDF');
       expect(exports).toContain('loadConfig');
@@ -95,9 +103,9 @@ describe('Module Interface (src/index.js)', () => {
       expect(exports).toContain('default');
     });
 
-    it('should have exactly 9 exports', () => {
+    it('should have exactly 10 exports', () => {
       const exports = Object.keys(SummaryForgeModule);
-      expect(exports.length).toBe(9);
+      expect(exports.length).toBe(10);
     });
   });
 

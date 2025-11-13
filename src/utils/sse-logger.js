@@ -35,14 +35,17 @@ export class SSELogger {
    * @param {string} [level='info'] - Log level (info, warn, error, debug)
    * @param {Object} [metadata] - Additional metadata
    */
-  log(message, level = 'info', metadata = {}) {
+  log(message, level = 'info', metadata = null) {
     const event = {
       type: 'log',
       level,
       message,
       timestamp: Date.now(),
-      ...metadata,
     };
+
+    if (metadata && Object.keys(metadata).length > 0) {
+      event.metadata = metadata;
+    }
 
     this.emit(event);
   }
