@@ -52,9 +52,11 @@
     "openai": "^6.8.1",
     "ora": "^8.1.0",
     "pdf-parse": "^1.1.1",
+    "pdf-poppler": "^0.2.3",
     "pdfkit": "^0.17.2",
     "proxy-chain": "^2.5.9",
-    "puppeteer-core": "^23.11.1"
+    "puppeteer-core": "^23.11.1",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",

@@ -1915,22 +1915,42 @@ export class SummaryForge {
       console.log(`✅ Found download link: ${dlUrl}`);
       console.log(`🌐 Navigating to download page...`);
       
+      // DEBUG: Log navigation attempt
+      console.log(`🔍 DEBUG: Attempting navigation to ${dlUrl}`);
+      console.log(`🔍 DEBUG: Using waitUntil: networkidle0, timeout: 60000ms`);
+      
       // Navigate to download URL with Puppeteer (maintains session)
-      const response = await page.goto(dlUrl, {
-        waitUntil: 'networkidle0',
-        timeout: 60000
-      });
+      let response;
+      try {
+        response = await page.goto(dlUrl, {
+          waitUntil: 'networkidle0',
+          timeout: 60000
+        });
+        console.log(`🔍 DEBUG: Navigation completed, response status: ${response?.status()}`);
+        console.log(`🔍 DEBUG: Response URL: ${response?.url()}`);
+        console.log(`🔍 DEBUG: Content-Type: ${response?.headers()['content-type']}`);
+      } catch (navError) {
+        console.log(`🔍 DEBUG: Navigation error: ${navError.message}`);
+        console.log(`🔍 DEBUG: This might be expected for downloads (navigation aborts)`);
+        throw navError;
+      }
       
       // Check if we got redirected to an error page
       const finalUrl = page.url();
+      console.log(`🔍 DEBUG: Final page URL after navigation: ${finalUrl}`);
+      
       if (finalUrl.includes('wrongHash') || finalUrl === 'https://1lib.sk//') {
+        console.log(`🔍 DEBUG: Detected error page redirect`);
         throw new Error('Download link expired or invalid. The book page may need to be refreshed.');
       }
       
       console.log(`✅ Download page loaded: ${finalUrl}`);
       
       // Get the response buffer
+      console.log(`🔍 DEBUG: Attempting to get response buffer...`);
+      console.log(`🔍 DEBUG: Response object exists: ${!!response}`);
       const buffer = await response.buffer();
+      console.log(`🔍 DEBUG: Buffer received, size: ${buffer?.length || 0} bytes`);
       
       if (!buffer || buffer.length < 1000) {
         throw new Error(`Downloaded file is too small (${buffer.length} bytes). This might be an error page.`);

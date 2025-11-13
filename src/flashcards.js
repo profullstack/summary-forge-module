@@ -389,3 +389,218 @@ export async function generateFlashcardsPDF(flashcards, outputPath, options = {}
     }
   });
 }
+
+/**
+ * Generate individual PNG images for each flashcard
+ *
+ * Creates separate PNG images for questions and answers, suitable for web display.
+ * Images are named q-001.png, a-001.png, q-002.png, a-002.png, etc.
+ *
+ * @param {Array<{question: string, answer: string}>} flashcards - Array of flashcard objects
+ * @param {string} outputDir - Directory where images should be saved
+ * @param {Object} options - Image generation options
+ * @param {string} options.title - Title for the flashcard set (displayed on each card)
+ * @param {string} options.branding - Branding text (e.g., "SummaryForge.com")
+ * @param {number} options.width - Image width in pixels (default: 800)
+ * @param {number} options.height - Image height in pixels (default: 600)
+ * @param {number} options.fontSize - Base font size (default: 24)
+ * @param {string} options.fontFamily - Font family (default: 'Helvetica')
+ * @returns {Promise<Object>} JSON object with success status and image paths
+ */
+export async function generateFlashcardImages(flashcards, outputDir, options = {}) {
+  if (!flashcards || flashcards.length === 0) {
+    return {
+      success: false,
+      error: 'No flashcards to generate',
+      count: 0,
+      images: [],
+      outputDir: null
+    };
+  }
+
+  const {
+    title = 'Flashcards',
+    branding = 'SummaryForge.com',
+    width = 800,
+    height = 600,
+    fontSize = 24,
+    fontFamily = 'Helvetica'
+  } = options;
+
+  try {
+    // Ensure output directory exists
+    await fsp.mkdir(outputDir, { recursive: true });
+
+    const images = [];
+    const tempPdfPath = path.join(outputDir, '.temp-flashcard.pdf');
+
+    // Generate individual card PDFs and convert to images
+    for (let i = 0; i < flashcards.length; i++) {
+      const cardNum = String(i + 1).padStart(3, '0');
+      const { question, answer } = flashcards[i];
+
+      // Generate question image
+      await generateSingleCardImage(
+        question,
+        true,
+        i + 1,
+        path.join(outputDir, `q-${cardNum}.png`),
+        { title, branding, width, height, fontSize, fontFamily }
+      );
+      images.push(path.join(outputDir, `q-${cardNum}.png`));
+
+      // Generate answer image
+      await generateSingleCardImage(
+        answer,
+        false,
+        i + 1,
+        path.join(outputDir, `a-${cardNum}.png`),
+        { title, branding, width, height, fontSize, fontFamily }
+      );
+      images.push(path.join(outputDir, `a-${cardNum}.png`));
+    }
+
+    // Clean up temp PDF if it exists
+    try {
+      await fsp.unlink(tempPdfPath);
+    } catch (err) {
+      // Ignore if file doesn't exist
+    }
+
+    return {
+      success: true,
+      count: flashcards.length,
+      images,
+      outputDir,
+      title,
+      message: `Generated ${images.length} flashcard images`
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      count: 0,
+      images: [],
+      outputDir,
+      message: 'Failed to generate flashcard images'
+    };
+  }
+}
+
+/**
+ * Generate a single flashcard image using sharp
+ * 
+ * @param {string} text - The text content for the card
+ * @param {boolean} isQuestion - Whether this is a question (true) or answer (false)
+ * @param {number} cardNumber - The card number
+ * @param {string} outputPath - Path where the image should be saved
+ * @param {Object} options - Styling options
+ * @returns {Promise<void>}
+ */
+async function generateSingleCardImage(text, isQuestion, cardNumber, outputPath, options) {
+  const { title, branding, width, height, fontSize, fontFamily } = options;
+  
+  // Import sharp dynamically
+  const sharp = (await import('sharp')).default;
+  
+  // Create SVG with the card content
+  const padding = 40;
+  const contentWidth = width - (padding * 2);
+  
+  // Calculate text wrapping
+  const maxCharsPerLine = Math.floor(contentWidth / (fontSize * 0.6));
+  const wrappedText = wrapText(text, maxCharsPerLine);
+  const lines = wrappedText.split('\n');
+  const lineHeight = fontSize * 1.4;
+  
+  // Build SVG
+  const svg = `
+    <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <!-- Background -->
+      <rect width="${width}" height="${height}" fill="#ffffff"/>
+      
+      <!-- Border -->
+      <rect x="2" y="2" width="${width - 4}" height="${height - 4}" 
+            fill="none" stroke="#cccccc" stroke-width="2"/>
+      
+      <!-- Header: Q/A label and card number -->
+      <text x="${padding}" y="${padding + 20}" 
+            font-family="${fontFamily}" font-size="18" font-weight="bold" fill="#666666">
+        ${isQuestion ? 'Q' : 'A'}
+      </text>
+      <text x="${width - padding}" y="${padding + 20}" 
+            font-family="${fontFamily}" font-size="14" fill="#999999" text-anchor="end">
+        #${cardNumber}
+      </text>
+      
+      <!-- Title -->
+      <text x="${width / 2}" y="${padding + 50}" 
+            font-family="${fontFamily}" font-size="16" fill="#333333" 
+            text-anchor="middle" font-weight="bold">
+        ${escapeXml(title)}
+      </text>
+      
+      <!-- Main text content (centered) -->
+      ${lines.map((line, idx) => {
+        const textY = (height / 2) - ((lines.length * lineHeight) / 2) + (idx * lineHeight);
+        return `<text x="${width / 2}" y="${textY}" 
+                      font-family="${fontFamily}" font-size="${fontSize}" fill="#000000" 
+                      text-anchor="middle">
+                  ${escapeXml(line.trim())}
+                </text>`;
+      }).join('\n')}
+      
+      <!-- Branding footer -->
+      <text x="${width / 2}" y="${height - padding}" 
+            font-family="${fontFamily}" font-size="12" fill="#cccccc" 
+            text-anchor="middle" font-style="italic">
+        ${escapeXml(branding)}
+      </text>
+    </svg>
+  `;
+  
+  // Convert SVG to PNG using sharp
+  await sharp(Buffer.from(svg))
+    .png()
+    .toFile(outputPath);
+}
+
+/**
+ * Wrap text to fit within a maximum line length
+ * 
+ * @param {string} text - The text to wrap
+ * @param {number} maxLength - Maximum characters per line
+ * @returns {string} Wrapped text with newlines
+ */
+function wrapText(text, maxLength) {
+  const words = text.split(' ');
+  const lines = [];
+  let currentLine = '';
+  
+  for (const word of words) {
+    if ((currentLine + word).length <= maxLength) {
+      currentLine += (currentLine ? ' ' : '') + word;
+    } else {
+      if (currentLine) lines.push(currentLine);
+      currentLine = word;
+    }
+  }
+  
+  if (currentLine) lines.push(currentLine);
+  return lines.join('\n');
+}
+
+/**
+ * Escape XML special characters
+ * 
+ * @param {string} text - Text to escape
+ * @returns {string} Escaped text
+ */
+function escapeXml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}

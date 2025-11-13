@@ -14,6 +14,7 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 - 🛡️ **Directory Protection**: Prompts before overwriting existing summaries (use --force to skip)
 - 📦 **Multiple Output Formats**: Creates Markdown, PDF, EPUB, plain text, and MP3 audio summaries
 - 🃏 **Printable Flashcards**: Generates double-sided flashcard PDFs for studying
+- 🖼️ **Flashcard Images**: Individual PNG images for web app integration (q-001.png, a-001.png, etc.)
 - 🎙️ **Natural Audio Narration**: AI-generated conversational audio script for better listening
 - 🗜️ **Bundled Output**: Packages everything into a convenient `.tgz` archive
 - 🔄 **Auto-Conversion**: Automatically converts EPUB to PDF using Calibre
@@ -829,11 +830,123 @@ The test suite includes:
 
 See [`test/summary-forge.test.js`](test/summary-forge.test.js) for the complete test suite.
 
+## Flashcard Generation
+
+Summary Forge includes powerful flashcard generation capabilities for study and review.
+
+### Printable PDF Flashcards
+
+Generate double-sided flashcard PDFs optimized for printing:
+
+```javascript
+import { extractFlashcards, generateFlashcardsPDF } from '@profullstack/summary-forge-module/flashcards';
+import fs from 'node:fs/promises';
+
+// Read your markdown summary
+const markdown = await fs.readFile('./book_summary.md', 'utf-8');
+
+// Extract Q&A pairs
+const extractResult = extractFlashcards(markdown, { maxCards: 50 });
+console.log(`Extracted ${extractResult.count} flashcards`);
+
+// Generate printable PDF
+const pdfResult = await generateFlashcardsPDF(
+  extractResult.flashcards,
+  './flashcards.pdf',
+  {
+    title: 'JavaScript Fundamentals',
+    branding: 'SummaryForge.com',
+    cardWidth: 3.5,   // inches
+    cardHeight: 2.5,  // inches
+    fontSize: 11
+  }
+);
+
+console.log(`PDF created: ${pdfResult.path}`);
+console.log(`Total pages: ${pdfResult.pages}`);
+```
+
+### Individual Flashcard Images
+
+Generate individual PNG images for each flashcard, perfect for web applications:
+
+```javascript
+import { extractFlashcards, generateFlashcardImages } from '@profullstack/summary-forge-module/flashcards';
+import fs from 'node:fs/promises';
+
+// Read your markdown summary
+const markdown = await fs.readFile('./book_summary.md', 'utf-8');
+
+// Extract Q&A pairs
+const extractResult = extractFlashcards(markdown);
+
+// Generate individual PNG images
+const imageResult = await generateFlashcardImages(
+  extractResult.flashcards,
+  './flashcards',  // Output directory
+  {
+    title: 'JavaScript Fundamentals',
+    branding: 'SummaryForge.com',
+    width: 800,   // pixels
+    height: 600,  // pixels
+    fontSize: 24
+  }
+);
+
+if (imageResult.success) {
+  console.log(`Generated ${imageResult.images.length} images`);
+  console.log('Files:', imageResult.images);
+  // Output: ['./flashcards/q-001.png', './flashcards/a-001.png', ...]
+}
+```
+
+**Image Naming Convention:**
+- `q-001.png`, `q-002.png`, etc. - Question cards
+- `a-001.png`, `a-002.png`, etc. - Answer cards
+
+**Use Cases:**
+- 🌐 Web-based flashcard applications
+- 📱 Mobile learning apps
+- 🎮 Interactive quiz games
+- 📊 Study progress tracking systems
+- 🔄 Spaced repetition software
+
+**Features:**
+- ✅ Clean, professional design with book title
+- ✅ Automatic text wrapping for long content
+- ✅ Customizable dimensions and styling
+- ✅ SVG-based rendering for crisp quality
+- ✅ Works in Docker (no native dependencies)
+
+### Flashcard Extraction Formats
+
+The `extractFlashcards` function supports multiple markdown formats:
+
+**1. Explicit Q&A Format:**
+```markdown
+**Q: What is a closure?**
+A: A closure is a function that has access to variables in its outer scope.
+```
+
+**2. Definition Lists:**
+```markdown
+**Closure**
+: A function that has access to variables in its outer scope.
+```
+
+**3. Question Headers:**
+```markdown
+### What is a closure?
+
+A closure is a function that has access to variables in its outer scope.
+```
+
 ## Examples
 
 See the [`examples/`](examples/) directory for more usage examples:
 
 - [`programmatic-usage.js`](examples/programmatic-usage.js) - Using as a module
+- [`flashcard-images-demo.js`](examples/flashcard-images-demo.js) - Generating flashcard images
 
 ## Troubleshooting
 

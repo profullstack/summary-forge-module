@@ -31,3 +31,4 @@ build/
 uploads/
 puppeteer_*/
 puppeteer_*/
+test-output/
