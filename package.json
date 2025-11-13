@@ -41,6 +41,13 @@
   },
   "homepage": "https://github.com/profullstack/summary-forge-module#readme",
   "packageManager": "pnpm@10.15.0",
+  "files": [
+    "src/",
+    "bin/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "chalk": "^5.3.0",
     "commander": "^12.1.0",

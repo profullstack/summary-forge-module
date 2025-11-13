@@ -3628,6 +3628,12 @@ export class SummaryForge {
       files.push(outputs.flashcardsPdf);
     }
     
+    // Add flashcards directory if it exists (contains generated images)
+    const flashcardsDir = path.join(webPageDir, 'flashcards');
+    if (await this.fileExists(flashcardsDir)) {
+      files.push('flashcards');
+    }
+    
     const archiveName = path.join(webPageDir, `${dirName}_bundle.tgz`);
     
     // Change to web page directory for tar to create relative paths
@@ -3774,62 +3780,38 @@ export class SummaryForge {
     const outputs = outputsResult.files;
     
     // Copy original files to book directory with consistent naming (only if not already there)
-    const files = [outputs.summaryMd, outputs.summaryTxt, outputs.summaryPdf, outputs.summaryEpub];
-    
     if (!isInUploadsDir) {
       const renamedPdf = path.join(bookDir, `${basename}.pdf`);
       await fsp.copyFile(pdfPath, renamedPdf);
       console.log(`✅ Saved PDF as ${renamedPdf}`);
-      files.push(renamedPdf);
       
       if (epubPath) {
         const renamedEpub = path.join(bookDir, `${basename}.epub`);
         await fsp.copyFile(epubPath, renamedEpub);
         console.log(`✅ Saved EPUB as ${renamedEpub}`);
-        files.push(renamedEpub);
       }
-    } else {
-      // File is already in the correct location, just add it to the list
-      files.push(pdfPath);
-      if (epubPath) {
-        files.push(epubPath);
-      }
-    }
-
-    // Add audio script to list if it was generated
-    if (outputs.audioScript) {
-      files.push(outputs.audioScript);
-    }
-
-    // Add audio file to list if it was generated
-    if (outputs.summaryMp3) {
-      files.push(outputs.summaryMp3);
-    }
-
-    // Add flashcards files to list if they were generated
-    if (outputs.flashcardsMd) {
-      files.push(outputs.flashcardsMd);
-    }
-    if (outputs.flashcardsPdf) {
-      files.push(outputs.flashcardsPdf);
     }
 
     const archiveName = path.join(bookDir, `${dirName}_bundle.tgz`);
     
-    // Change to book directory for tar to create relative paths
+    // Create bundle by tarring the entire directory (excluding the bundle itself)
     this.logger.progress(98, "Creating bundle archive", { step: 'bundling' });
     const originalCwd = process.cwd();
-    process.chdir(bookDir);
+    const parentDir = path.dirname(bookDir);
+    process.chdir(parentDir);
     
     try {
-      // Create bundle with relative paths
-      const relativeFiles = files.map(f => path.basename(f));
-      await this.sh("tar", ["-czf", path.basename(archiveName), ...relativeFiles]);
+      // Tar the entire directory - this will preserve the directory name in the archive
+      // When extracted, it will create ./:title/* structure
+      await this.sh("tar", ["-czf", archiveName, "--exclude", `${path.basename(bookDir)}/${path.basename(archiveName)}`, path.basename(bookDir)]);
       this.logger.log(`Bundle created: ${archiveName}`);
-      this.logger.log(`Bundle contains: ${relativeFiles.join(', ')}`);
+      this.logger.log(`Bundle contains directory: ${path.basename(bookDir)}/`);
     } finally {
       process.chdir(originalCwd);
     }
+    
+    // Get list of files for return value
+    const files = await getDirectoryContents(bookDir);
 
       // Play terminal beep to signal completion
       process.stdout.write('\x07');
