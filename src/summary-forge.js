@@ -791,24 +791,33 @@ export class SummaryForge {
     
     console.log(`🌐 Search URL: ${searchUrl}`);
     
-    // Set up proxy for search (Anna's Archive)
-    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
-    const proxyUrlObj = new URL(this.proxyUrl);
-    const proxyHost = proxyUrlObj.hostname;
-    const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    // Webshare sticky sessions: remove -rotate suffix and add session ID
-    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
-    const proxyPassword = this.proxyPassword;
+    // Set up proxy for search (Anna's Archive) - only if enabled
+    let proxyHost, proxyPort, proxyUsername, proxyPassword;
+    let sessionId = null;
+    let useProxy = false;
     
-    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    if (this.enableProxy && this.proxyUrl) {
+      useProxy = true;
+      sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+      const proxyUrlObj = new URL(this.proxyUrl);
+      proxyHost = proxyUrlObj.hostname;
+      proxyPort = parseInt(proxyUrlObj.port) || 80;
+      // Webshare sticky sessions: remove -rotate suffix and add session ID
+      proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
+      proxyPassword = this.proxyPassword;
+      
+      console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    } else {
+      console.log(`🌐 Direct connection (no proxy)`);
+    }
     
-    const userDataDir = `./puppeteer_search_${sessionId}_${Date.now()}`;
+    const userDataDir = `./puppeteer_search_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
       headless: this.headless,
       args: [
-        `--proxy-server=${proxyHost}:${proxyPort}`,
+        ...(useProxy && proxyHost ? [`--proxy-server=${proxyHost}:${proxyPort}`] : []),
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -842,7 +851,9 @@ export class SummaryForge {
         'Accept-Language': 'en-US,en;q=0.9',
       });
       
-      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      if (useProxy && proxyUsername && proxyPassword) {
+        await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      }
       
       // Navigate to search page
       console.log(`🌐 Navigating to search page...`);
@@ -1002,18 +1013,12 @@ export class SummaryForge {
       view = 'list'
     } = options;
 
-    if (!this.enableProxy || !this.proxyUrl) {
-      return {
-        success: false,
-        error: 'Proxy configuration is required for 1lib.sk search',
-        results: [],
-        count: 0,
-        query,
-        options
-      };
-    }
-
     console.log(`🔍 Searching 1lib.sk for "${query}"...`);
+    
+    if (!this.enableProxy || !this.proxyUrl) {
+      console.log(`⚠️  Warning: Proxy not configured. 1lib.sk may block direct access.`);
+      console.log(`   Enable with: summary config --proxy true`);
+    }
     
     // Build search URL matching 1lib.sk format
     // Note: 1lib.sk uses /s/ path for search, query params are optional filters
@@ -1062,24 +1067,36 @@ export class SummaryForge {
       console.log(`📋 Query parameters: ${paramString}`);
     }
     
-    // Set up proxy for search
-    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
-    const proxyUrlObj = new URL(this.proxyUrl);
-    const proxyHost = proxyUrlObj.hostname;
-    const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    // Webshare sticky sessions: remove -rotate suffix and add session ID
-    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
-    const proxyPassword = this.proxyPassword;
+    // Set up proxy for search (if enabled)
+    let proxyHost, proxyPort, proxyUsername, proxyPassword;
+    let sessionId = null;
+    let useProxy = false;
     
-    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    if (this.enableProxy && this.proxyUrl) {
+      useProxy = true;
+      sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+      const proxyUrlObj = new URL(this.proxyUrl);
+      proxyHost = proxyUrlObj.hostname;
+      proxyPort = parseInt(proxyUrlObj.port) || 80;
+      // Webshare sticky sessions: remove -rotate suffix and add session ID
+      proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
+      proxyPassword = this.proxyPassword;
+      
+      console.log(`🔒 Using proxy session ${sessionId}`);
+      console.log(`   Username: ${proxyUsername}`);
+      console.log(`   Password: ${proxyPassword ? '***' + proxyPassword.slice(-4) : '(not set)'}`);
+      console.log(`   Server: ${proxyHost}:${proxyPort}`);
+    } else {
+      console.log(`🌐 Direct connection (no proxy)`);
+    }
     
-    const userDataDir = `./puppeteer_1lib_${sessionId}_${Date.now()}`;
+    const userDataDir = `./puppeteer_1lib_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
       headless: this.headless,
       args: [
-        `--proxy-server=${proxyHost}:${proxyPort}`,
+        ...(useProxy && proxyHost ? [`--proxy-server=${proxyHost}:${proxyPort}`] : []),
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -1126,7 +1143,11 @@ export class SummaryForge {
         'Accept-Language': 'en-US,en;q=0.9',
       });
       
-      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      if (useProxy && proxyUsername && proxyPassword) {
+        console.log(`🔐 Authenticating with proxy...`);
+        await page.authenticate({ username: proxyUsername, password: proxyPassword });
+        console.log(`✅ Proxy authentication set`);
+      }
       
       // Navigate to search page
       console.log(`🌐 Navigating to search page...`);
@@ -1301,16 +1322,12 @@ export class SummaryForge {
       view = 'list'
     } = searchOptions;
 
-    if (!this.enableProxy || !this.proxyUrl) {
-      return {
-        success: false,
-        error: 'Proxy configuration is required for 1lib.sk',
-        results: [],
-        download: null
-      };
-    }
-
     console.log(`🔍 Searching 1lib.sk for "${query}"...`);
+    
+    if (!this.enableProxy || !this.proxyUrl) {
+      console.log(`⚠️  Warning: Proxy not configured. 1lib.sk may block direct access.`);
+      console.log(`   Enable with: summary config --proxy true`);
+    }
     
     // Build search URL
     const params = new URLSearchParams();
@@ -1344,24 +1361,33 @@ export class SummaryForge {
       ? `https://1lib.sk/s/${encodeURIComponent(query)}?${paramString}`
       : `https://1lib.sk/s/${encodeURIComponent(query)}`;
     
-    // Set up proxy
-    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
-    const proxyUrlObj = new URL(this.proxyUrl);
-    const proxyHost = proxyUrlObj.hostname;
-    const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    // Webshare sticky sessions: remove -rotate suffix and add session ID
-    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
-    const proxyPassword = this.proxyPassword;
+    // Set up proxy (only if enabled)
+    let proxyHost, proxyPort, proxyUsername, proxyPassword;
+    let sessionId = null;
+    let useProxy = false;
     
-    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    if (this.enableProxy && this.proxyUrl) {
+      useProxy = true;
+      sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+      const proxyUrlObj = new URL(this.proxyUrl);
+      proxyHost = proxyUrlObj.hostname;
+      proxyPort = parseInt(proxyUrlObj.port) || 80;
+      // Webshare sticky sessions: remove -rotate suffix and add session ID
+      proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
+      proxyPassword = this.proxyPassword;
+      
+      console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    } else {
+      console.log(`🌐 Direct connection (no proxy)`);
+    }
     
-    const userDataDir = `./puppeteer_1lib_combined_${sessionId}_${Date.now()}`;
+    const userDataDir = `./puppeteer_1lib_combined_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
       headless: this.headless,
       args: [
-        `--proxy-server=${proxyHost}:${proxyPort}`,
+        ...(useProxy && proxyHost ? [`--proxy-server=${proxyHost}:${proxyPort}`] : []),
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -1394,7 +1420,11 @@ export class SummaryForge {
         'Accept-Language': 'en-US,en;q=0.9',
       });
       
-      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      if (useProxy && proxyUsername && proxyPassword) {
+        console.log(`🔐 Authenticating with proxy...`);
+        await page.authenticate({ username: proxyUsername, password: proxyPassword });
+        console.log(`✅ Proxy authentication set`);
+      }
       
       // Navigate to search page
       console.log(`🌐 Navigating to search page...`);
@@ -1508,9 +1538,18 @@ export class SummaryForge {
       const dirName = this.generateDirectoryName(sanitizedTitle, identifier);
       const bookDir = path.join(outputDir, 'uploads', dirName);
       
-      const dirResult = await ensureDirectory(bookDir, this.force, this.promptFn);
+      let dirResult;
+      try {
+        dirResult = await ensureDirectory(bookDir, this.force, this.promptFn);
+      } catch (dirError) {
+        console.error(`❌ Directory creation failed: ${dirError.message}`);
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error(`Directory creation failed: ${dirError.message}`);
+      }
       
       if (!dirResult.created) {
+        console.log(`⏭️  Directory already exists and user chose not to overwrite: ${bookDir}`);
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
         throw new Error('Operation cancelled: Directory already exists');
@@ -1530,34 +1569,7 @@ export class SummaryForge {
       
       console.log(`✅ On book page: ${page.url()}`);
       
-      // Set up response listener to capture download URL
-      let downloadUrl = null;
-      const allResponses = [];
-      
-      page.on('response', async (response) => {
-        const url = response.url();
-        const contentType = response.headers()['content-type'] || '';
-        
-        // Log all responses for debugging
-        allResponses.push({ url, contentType });
-        
-        // Check for PDF/EPUB download (not fonts or other resources)
-        if ((contentType.includes('application/pdf') ||
-             contentType.includes('application/epub') ||
-             contentType.includes('application/octet-stream')) &&
-            !url.includes('.ttf') &&
-            !url.includes('.woff') &&
-            !url.includes('.css') &&
-            !url.includes('.js') &&
-            !url.includes('zlibicons')) {
-          if (url.includes('filename=') || url.endsWith('.pdf') || url.endsWith('.epub')) {
-            downloadUrl = url;
-            console.log(`📥 Detected download URL: ${url}`);
-          }
-        }
-      });
-      
-      console.log(`🖱️  Clicking download button...`);
+      console.log(`🖱️  Looking for download button...`);
       
       // Try to find and click the download button with multiple selectors
       const clicked = await page.evaluate(() => {
@@ -1575,12 +1587,7 @@ export class SummaryForge {
           const downloadBtn = document.querySelector(selector);
           if (downloadBtn) {
             const href = downloadBtn.getAttribute('href') || downloadBtn.getAttribute('data-href');
-            try {
-              downloadBtn.click();
-              return { clicked: true, href, selector };
-            } catch (e) {
-              continue;
-            }
+            return { found: true, href, selector };
           }
         }
         
@@ -1591,10 +1598,10 @@ export class SummaryForge {
           classes: a.className
         }));
         
-        return { clicked: false, allLinks };
+        return { found: false, allLinks };
       });
       
-      if (!clicked.clicked) {
+      if (!clicked.found) {
         // Save debug HTML for inspection
         const debugHtml = await page.content();
         const debugPath = path.join(bookDir, 'debug-book-page.html');
@@ -1615,133 +1622,85 @@ export class SummaryForge {
         throw new Error('Download button not found');
       }
       
-      console.log(`✅ Clicked button with selector: ${clicked.selector}`);
+      console.log(`✅ Found download button with selector: ${clicked.selector}`);
       console.log(`📎 Button href: ${clicked.href}`);
-      console.log(`⏳ Waiting for download URL to be captured (up to 30s)...`);
       
-      // Wait for download URL to be captured by response listener
-      const maxWait = 30000;
-      const startTime = Date.now();
-      while (!downloadUrl && (Date.now() - startTime) < maxWait) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Log progress every 5 seconds
-        if ((Date.now() - startTime) % 5000 < 500) {
-          console.log(`   ⏱️  Waiting... (${Math.floor((Date.now() - startTime) / 1000)}s)`);
-        }
-      }
+      // Use the downloadUrl from search results (it's fresher than the button href)
+      const dlUrl = selectedBook.downloadUrl || `https://1lib.sk${clicked.href}`;
+      console.log(`📥 Using download URL: ${dlUrl}`);
       
-      if (!downloadUrl) {
-        console.error(`❌ Could not capture download URL`);
-        console.error(`   The download may have been blocked or the link expired`);
-        console.error(`   Captured ${allResponses.length} responses during wait period`);
-        if (allResponses.length > 0) {
-          console.error(`   Sample responses:`);
-          allResponses.slice(0, 5).forEach((resp, idx) => {
-            console.error(`   ${idx + 1}. ${resp.url.substring(0, 80)} (${resp.contentType})`);
-          });
-        }
-        
-        await browser.close();
-        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        throw new Error('Could not capture download URL');
-      }
-      
-      console.log(`✅ Got download URL: ${downloadUrl}`);
-      console.log(`📥 Downloading file with retry logic...`);
-      
-      // Get cookies for authenticated download
+      // Get cookies for fetch
       const cookies = await page.cookies();
       const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
       
-      // Download with retry logic for rate limiting
-      let downloadBuffer = null;
-      let retryCount = 0;
-      const maxRetries = 3;
+      // Use fetch to download with progress tracking
+      console.log(`📥 Downloading file...`);
       
-      while (retryCount <= maxRetries) {
-        try {
-          const response = await fetch(downloadUrl, {
-            headers: {
-              'Cookie': cookieString,
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-              'Referer': selectedBook.url,
-              'Accept': 'application/pdf,application/epub+zip,application/octet-stream,*/*'
-            },
-            redirect: 'follow'
-          });
-          
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
-          
-          // Check if response is a rate limit error page
-          const contentType = response.headers.get('content-type') || '';
-          if (contentType.includes('text/html')) {
-            const text = await response.text();
-            if (text.includes('Too many requests') || text.includes('Err #ipd1')) {
-              const waitMatch = text.match(/wait (\d+) seconds/i);
-              const waitTime = waitMatch ? parseInt(waitMatch[1], 10) : 10;
-              
-              if (retryCount < maxRetries) {
-                console.log(`⏰ Rate limited. Waiting ${waitTime + 2} seconds before retry ${retryCount + 1}/${maxRetries}...`);
-                await new Promise(resolve => setTimeout(resolve, (waitTime + 2) * 1000));
-                retryCount++;
-                continue;
-              } else {
-                throw new Error(`Rate limited after ${maxRetries} retries. Please wait a few minutes and try again.`);
-              }
-            }
-          }
-          
-          // Get content length for progress tracking
-          const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-          console.log(`📊 File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
-          
-          // Download with progress
-          const chunks = [];
-          let downloadedBytes = 0;
-          let lastPercent = 0;
-          
-          for await (const chunk of response.body) {
-            chunks.push(chunk);
-            downloadedBytes += chunk.length;
-            
-            if (contentLength > 0) {
-              const percent = Math.floor((downloadedBytes / contentLength) * 100);
-              if (percent >= lastPercent + 10) {
-                console.log(`   📥 Progress: ${percent}%`);
-                lastPercent = percent;
-              }
-            }
-          }
-          
-          downloadBuffer = Buffer.concat(chunks);
-          console.log(`✅ Download complete: ${(downloadBuffer.length / 1024 / 1024).toFixed(2)} MB`);
-          
-          // Success - break out of retry loop
-          break;
-          
-        } catch (fetchError) {
-          if (retryCount < maxRetries) {
-            console.log(`⚠️  Download failed, retrying in 5 seconds... (${retryCount + 1}/${maxRetries}): ${fetchError.message}`);
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            retryCount++;
-          } else {
-            throw fetchError;
+      const response = await fetch(dlUrl, {
+        headers: {
+          'Cookie': cookieString,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Referer': selectedBook.url
+        },
+        redirect: 'follow'
+      });
+      
+      if (!response.ok) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get('content-type') || '';
+      console.log(`📄 Content-Type: ${contentType}`);
+      console.log(`📍 Final URL: ${response.url}`);
+      
+      if (contentType.includes('text/html')) {
+        const errorText = await response.text();
+        const debugPath = path.join(bookDir, 'debug-download-error.html');
+        await fsp.writeFile(debugPath, errorText, 'utf8').catch(() => {});
+        
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error(`Received HTML instead of file. Debug saved to: ${debugPath}`);
+      }
+      
+      // Download with progress
+      const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+      console.log(`📊 File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
+      
+      const chunks = [];
+      let downloadedBytes = 0;
+      let lastProgressPercent = 0;
+      
+      for await (const chunk of response.body) {
+        chunks.push(chunk);
+        downloadedBytes += chunk.length;
+        
+        if (contentLength > 0) {
+          const progressPercent = Math.floor((downloadedBytes / contentLength) * 100);
+          if (progressPercent >= lastProgressPercent + 10) {
+            console.log(`   📥 Downloaded: ${progressPercent}% (${(downloadedBytes / 1024 / 1024).toFixed(2)} MB)`);
+            lastProgressPercent = progressPercent;
           }
         }
       }
       
-      if (!downloadBuffer || downloadBuffer.length < 1000) {
+      const downloadBuffer = Buffer.concat(chunks);
+      
+      if (!downloadBuffer || downloadBuffer.length < 100000) {
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        throw new Error(`Downloaded file is too small or empty (${downloadBuffer?.length || 0} bytes)`);
+        throw new Error(`Downloaded file is too small (${(downloadBuffer.length / 1024).toFixed(2)} KB). Expected at least 100 KB.`);
       }
       
-      // Determine extension from content type or URL
-      const ext = downloadUrl.toLowerCase().includes('.epub') ? '.epub' : '.pdf';
+      console.log(`✅ Download complete: ${(downloadBuffer.length / 1024 / 1024).toFixed(2)} MB`);
       
+      // Determine extension from content type (already retrieved above)
+      let ext = '.pdf';
+      if (contentType.includes('epub') || dlUrl.toLowerCase().includes('.epub')) {
+        ext = '.epub';
+      }
       const filename = `${sanitizedTitle}${ext}`;
       const filepath = path.join(bookDir, filename);
       
@@ -1807,24 +1766,33 @@ export class SummaryForge {
       console.log(`🌐 Book URL: ${bookUrl}`);
     }
     
-    // Set up proxy for download
-    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
-    const proxyUrlObj = new URL(this.proxyUrl);
-    const proxyHost = proxyUrlObj.hostname;
-    const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    // Webshare sticky sessions: remove -rotate suffix and add session ID
-    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
-    const proxyPassword = this.proxyPassword;
+    // Set up proxy for download - only if enabled
+    let proxyHost, proxyPort, proxyUsername, proxyPassword;
+    let sessionId = null;
+    let useProxy = false;
     
-    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    if (this.enableProxy && this.proxyUrl) {
+      useProxy = true;
+      sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+      const proxyUrlObj = new URL(this.proxyUrl);
+      proxyHost = proxyUrlObj.hostname;
+      proxyPort = parseInt(proxyUrlObj.port) || 80;
+      // Webshare sticky sessions: remove -rotate suffix and add session ID
+      proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
+      proxyPassword = this.proxyPassword;
+      
+      console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+    } else {
+      console.log(`🌐 Direct connection (no proxy)`);
+    }
     
-    const userDataDir = `./puppeteer_1lib_download_${sessionId}_${Date.now()}`;
+    const userDataDir = `./puppeteer_1lib_download_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
       headless: this.headless,
       args: [
-        `--proxy-server=${proxyHost}:${proxyPort}`,
+        ...(useProxy && proxyHost ? [`--proxy-server=${proxyHost}:${proxyPort}`] : []),
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -1857,7 +1825,9 @@ export class SummaryForge {
         'Accept-Language': 'en-US,en;q=0.9',
       });
       
-      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      if (useProxy && proxyUsername && proxyPassword) {
+        await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      }
       
       // Navigate to book page
       console.log(`🌐 Navigating to book page...`);
@@ -2059,28 +2029,36 @@ export class SummaryForge {
     }
     console.log(`🔍 Search URL: ${searchUrl}`);
     
-    // Simple proxy setup like test-just-proxy.js
-    // Session ID must be between 1-proxyPoolSize for Webshare sticky sessions
-    const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
-    const proxyUrlObj = new URL(this.proxyUrl);
-    const proxyHost = proxyUrlObj.hostname;
-    const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    // Webshare sticky sessions: remove -rotate suffix and add session ID
-    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
-    const proxyPassword = this.proxyPassword;
+    // Simple proxy setup like test-just-proxy.js - only if enabled
+    let proxyHost, proxyPort, proxyUsername, proxyPassword;
+    let sessionId = null;
+    let useProxy = false;
     
-    console.log(`🔒 Proxy session: ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
-    
-    console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of ${this.proxyPoolSize})`);
+    if (this.enableProxy && this.proxyUrl) {
+      useProxy = true;
+      // Session ID must be between 1-proxyPoolSize for Webshare sticky sessions
+      sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
+      const proxyUrlObj = new URL(this.proxyUrl);
+      proxyHost = proxyUrlObj.hostname;
+      proxyPort = parseInt(proxyUrlObj.port) || 80;
+      // Webshare sticky sessions: remove -rotate suffix and add session ID
+      proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
+      proxyPassword = this.proxyPassword;
+      
+      console.log(`🔒 Proxy session: ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
+      console.log(`ℹ️  Using proxy session ${sessionId} (sticky session from pool of ${this.proxyPoolSize})`);
+    } else {
+      console.log(`🌐 Direct connection (no proxy)`);
+    }
     
     // Use a unique profile per session to avoid conflicts between runs
-    const userDataDir = `./puppeteer_ddg_profile_${sessionId}_${Date.now()}`;
+    const userDataDir = `./puppeteer_ddg_profile_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
       headless: this.headless,
       args: [
-        `--proxy-server=${proxyHost}:${proxyPort}`,
+        ...(useProxy && proxyHost ? [`--proxy-server=${proxyHost}:${proxyPort}`] : []),
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -2130,7 +2108,9 @@ export class SummaryForge {
 
       // If the proxy requires HTTP auth (most HTTP proxies do), page.authenticate usually works.
       // This provides credentials for basic auth challenges (including many proxies).
-      await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      if (useProxy && proxyUsername && proxyPassword) {
+        await page.authenticate({ username: proxyUsername, password: proxyPassword });
+      }
       
       // Step 1: Go to search page with DDoS-Guard bypass
       console.log(`🌐 Navigating to search page...`);
@@ -2864,7 +2844,7 @@ export class SummaryForge {
         };
         
       } catch (textExtractionError) {
-        console.error(`❌ Text extraction fallback failed: ${textExtractionError.message}`);
+        this.logger.error(`Text extraction fallback failed: ${textExtractionError.message}`, textExtractionError);
         return {
           success: false,
           error: textExtractionError.message,

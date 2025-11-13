@@ -345,13 +345,24 @@ program
       
       if (!processResult || !processResult.success) {
         console.error(chalk.red(`\n❌ Error: ${processResult?.error || 'Processing failed'}`));
+        
+        // Display cost summary even on failure
+        const costs = forge.getCostSummary();
+        if (costs && costs.breakdown && costs.breakdown.total > 0) {
+          console.log(chalk.blue('\n💰 Cost Summary:'));
+          console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai}`));
+          console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs}`));
+          console.log(chalk.white(`   Rainforest API:     ${costs.rainforest}`));
+          console.log(chalk.yellow(`   Total:              ${costs.total}\n`));
+        }
+        
         process.exit(1);
       }
       
       console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
       
       // Display cost summary
-      const costs = processResult.costs || {};
+      const costs = processResult.costs || forge.getCostSummary();
       console.log(chalk.blue('\n💰 Cost Summary:'));
       console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai || '$0.0000'}`));
       console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs || '$0.0000'}`));
@@ -414,16 +425,33 @@ program
         const processResult = await forge.processWebPage(url);
         spinner.stop();
         
+        if (!processResult || !processResult.success) {
+          console.error(chalk.red(`\n❌ Error: ${processResult?.error || 'Processing failed'}`));
+          
+          // Display cost summary even on failure
+          const costs = forge.getCostSummary();
+          if (costs && costs.breakdown && costs.breakdown.total > 0) {
+            console.log(chalk.blue('\n💰 Cost Summary:'));
+            console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai}`));
+            console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs}`));
+            console.log(chalk.white(`   Rainforest API:     ${costs.rainforest}`));
+            console.log(chalk.yellow(`   Total:              ${costs.total}\n`));
+          }
+          
+          throw new Error(processResult?.error || 'Processing failed');
+        }
+        
         console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
         console.log(chalk.blue(`📄 Page title: ${processResult.title}`));
         console.log(chalk.cyan(`🔗 Source URL: ${processResult.url}`));
         
         // Display cost summary
+        const costs = processResult.costs || forge.getCostSummary();
         console.log(chalk.blue('\n💰 Cost Summary:'));
-        console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
-        console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
-        console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
-        console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
+        console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai || '$0.0000'}`));
+        console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs || '$0.0000'}`));
+        console.log(chalk.white(`   Rainforest API:     ${costs.rainforest || '$0.0000'}`));
+        console.log(chalk.yellow(`   Total:              ${costs.total || '$0.0000'}\n`));
       } catch (error) {
         spinner.stop();
         throw error;
@@ -601,14 +629,31 @@ program
       spinner.start('Processing book...');
       const processResult = await forge.processFile(download.filepath, download.identifier);
       spinner.stop();
+      
+      if (!processResult || !processResult.success) {
+        console.error(chalk.red(`\n❌ Error: ${processResult?.error || 'Processing failed'}`));
+        
+        // Display cost summary even on failure
+        const costs = forge.getCostSummary();
+        if (costs && costs.breakdown && costs.breakdown.total > 0) {
+          console.log(chalk.blue('\n💰 Cost Summary:'));
+          console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai}`));
+          console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs}`));
+          console.log(chalk.white(`   Rainforest API:     ${costs.rainforest}`));
+          console.log(chalk.yellow(`   Total:              ${costs.total}\n`));
+        }
+        return;
+      }
+      
       console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
       
       // Display cost summary
+      const costs = processResult.costs || forge.getCostSummary();
       console.log(chalk.blue('\n💰 Cost Summary:'));
-      console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
-      console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
-      console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
-      console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
+      console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai || '$0.0000'}`));
+      console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs || '$0.0000'}`));
+      console.log(chalk.white(`   Rainforest API:     ${costs.rainforest || '$0.0000'}`));
+      console.log(chalk.yellow(`   Total:              ${costs.total || '$0.0000'}\n`));
     }
       
     } catch (error) {
@@ -1101,14 +1146,31 @@ program
             spinner.start('Processing book...');
             const processResult = await forge.processFile(download.filepath, download.asin);
             spinner.stop();
+            
+            if (!processResult || !processResult.success) {
+              console.error(chalk.red(`\n❌ Error: ${processResult?.error || 'Processing failed'}`));
+              
+              // Display cost summary even on failure
+              const costs = forge.getCostSummary();
+              if (costs && costs.breakdown && costs.breakdown.total > 0) {
+                console.log(chalk.blue('\n💰 Cost Summary:'));
+                console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai}`));
+                console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs}`));
+                console.log(chalk.white(`   Rainforest API:     ${costs.rainforest}`));
+                console.log(chalk.yellow(`   Total:              ${costs.total}\n`));
+              }
+              return;
+            }
+            
             console.log(chalk.green(`\n✨ Summary complete! Archive: ${processResult.archive}`));
             
             // Display cost summary
+            const costs = processResult.costs || forge.getCostSummary();
             console.log(chalk.blue('\n💰 Cost Summary:'));
-            console.log(chalk.white(`   OpenAI (GPT-5):     ${processResult.costs.openai}`));
-            console.log(chalk.white(`   ElevenLabs (TTS):   ${processResult.costs.elevenlabs}`));
-            console.log(chalk.white(`   Rainforest API:     ${processResult.costs.rainforest}`));
-            console.log(chalk.yellow(`   Total:              ${processResult.costs.total}\n`));
+            console.log(chalk.white(`   OpenAI (GPT-5):     ${costs.openai || '$0.0000'}`));
+            console.log(chalk.white(`   ElevenLabs (TTS):   ${costs.elevenlabs || '$0.0000'}`));
+            console.log(chalk.white(`   Rainforest API:     ${costs.rainforest || '$0.0000'}`));
+            console.log(chalk.yellow(`   Total:              ${costs.total || '$0.0000'}\n`));
           }
         } catch (error) {
           spinner.stop();

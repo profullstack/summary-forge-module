@@ -124,7 +124,10 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
   
   // Add proxy if provided (with session-based authentication like other methods)
   let finalProxyUsername = proxyUsername;
+  let useProxy = false;
+  
   if (proxyUrl) {
+    useProxy = true;
     const proxyUrlObj = new URL(proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
@@ -140,6 +143,8 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
     } else {
       console.log(`🔒 Using proxy: ${proxyHost}:${proxyPort}`);
     }
+  } else {
+    console.log(`🌐 Direct connection (no proxy)`);
   }
   
   const browser = await puppeteer.launch(launchOptions);
@@ -158,7 +163,7 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
     });
     
     // Set proxy authentication if provided (with session-based username)
-    if (proxyUrl && finalProxyUsername && proxyPassword) {
+    if (useProxy && finalProxyUsername && proxyPassword) {
       await page.authenticate({ username: finalProxyUsername, password: proxyPassword });
     }
     
