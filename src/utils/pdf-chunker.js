@@ -4,7 +4,7 @@
  * Handles chunking of large PDFs for processing with OpenAI APIs
  */
 
-import { PDFParse } from 'pdf-parse';
+import PDFParse from 'pdf-parse';
 import fsp from 'node:fs/promises';
 
 /**
@@ -14,9 +14,7 @@ import fsp from 'node:fs/promises';
  */
 export async function extractPdfPages(pdfPath) {
   const pdfBuffer = await fsp.readFile(pdfPath);
-  const parser = new PDFParse({ data: pdfBuffer });
-  const result = await parser.getText();
-  await parser.destroy();
+  const result = await PDFParse(pdfBuffer);
   
   // pdf-parse doesn't provide per-page text by default
   // We'll need to use a different approach or split by estimated page breaks
@@ -120,9 +118,7 @@ export function calculateOptimalChunkSize(totalChars, maxTokens = 100000) {
  */
 export async function getPdfStats(pdfPath) {
   const pdfBuffer = await fsp.readFile(pdfPath);
-  const parser = new PDFParse({ data: pdfBuffer });
-  const result = await parser.getText();
-  await parser.destroy();
+  const result = await PDFParse(pdfBuffer);
   
   const totalChars = result.text.length;
   const estimatedTokens = Math.ceil(totalChars / 4); // Rough estimate

@@ -13,7 +13,7 @@ import { ElevenLabsClient } from "elevenlabs";
 // Use puppeteer-core to avoid Canvas/DOMMatrix dependencies
 // puppeteer-core doesn't bundle Chrome and has no browser API dependencies
 import puppeteer from 'puppeteer-core';
-import { PDFParse } from "pdf-parse";
+import PDFParse from "pdf-parse";
 import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize } from "./utils/pdf-chunker.js";
 import { ensureDirectory, getDirectoryContents } from "./utils/directory-protection.js";
@@ -2628,9 +2628,7 @@ export class SummaryForge {
           console.log("📄 PDF is small enough to process in one request");
           
           const pdfBuffer = await fsp.readFile(pdfPath);
-          const parser = new PDFParse({ data: pdfBuffer });
-          const result = await parser.getText();
-          await parser.destroy();
+          const result = await PDFParse(pdfBuffer);
           
           const extractedText = result.text;
           
