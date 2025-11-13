@@ -1,8 +1,5 @@
 // test-proxy-ddg-bypass.mjs
 import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-
-puppeteer.use(StealthPlugin());
 
 const PROXY_HOST = 'p.webshare.io';
 const PROXY_PORT = 80;
