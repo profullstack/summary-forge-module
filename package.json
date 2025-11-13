@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/summary-forge-module",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "An intelligent tool that uses AI to create comprehensive summaries of technical books",
   "type": "module",
   "main": "./src/index.js",
