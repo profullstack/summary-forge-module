@@ -1625,47 +1625,97 @@ export class SummaryForge {
       console.log(`✅ Found download button with selector: ${clicked.selector}`);
       console.log(`📎 Button href: ${clicked.href}`);
       
-      // Use the FRESH href from the button on the page
-      const dlUrl = `https://1lib.sk${clicked.href}`;
-      console.log(`📥 Using download URL from button: ${dlUrl}`);
-      console.log(`🌐 Navigating to download page...`);
+      // Navigate to download URL and capture the CDN redirect
+      const initialDlUrl = `https://1lib.sk${clicked.href}`;
+      console.log(`📥 Navigating to download URL: ${initialDlUrl}`);
       
-      // Navigate to download URL with Puppeteer (maintains session)
-      const response = await page.goto(dlUrl, {
-        waitUntil: 'networkidle0',
-        timeout: 60000
+      // Wait for the PDF response from CDN (after redirect)
+      const [pdfResponse] = await Promise.all([
+        page.waitForResponse(
+          (resp) => {
+            const ct = resp.headers()['content-type'] || '';
+            return resp.status() === 200 && ct.includes('application/pdf');
+          },
+          { timeout: 30000 }
+        ),
+        page.goto(initialDlUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000
+        }).catch(() => {
+          // Navigation may abort - that's OK if we got the response
+          console.log(`ℹ️  Navigation aborted (expected for downloads)`);
+        })
+      ]);
+      
+      if (!pdfResponse) {
+        await browser.close();
+        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
+        throw new Error('Failed to capture PDF response from CDN');
+      }
+      
+      const cdnUrl = pdfResponse.url();
+      const cdnContentLength = parseInt(pdfResponse.headers()['content-length'] || '0', 10);
+      
+      console.log(`📍 Found PDF on CDN: ${cdnUrl.substring(0, 80)}...`);
+      console.log(`📊 File size: ${(cdnContentLength / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`📥 Downloading from CDN...`);
+      
+      // Get cookies to use with fetch
+      const cookies = await page.cookies();
+      const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+      
+      // Download from CDN with fetch and progress tracking
+      const fetchResponse = await fetch(cdnUrl, {
+        headers: {
+          'Cookie': cookieString,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Referer': initialDlUrl
+        }
       });
       
-      // Check if we got redirected to an error page
-      const finalUrl = page.url();
-      if (finalUrl.includes('wrongHash') || finalUrl === 'https://1lib.sk//') {
+      if (!fetchResponse.ok) {
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        throw new Error('Download link expired or invalid. The book page may need to be refreshed.');
+        throw new Error(`CDN download failed: HTTP ${fetchResponse.status}: ${fetchResponse.statusText}`);
       }
       
-      console.log(`✅ Download page loaded: ${finalUrl}`);
+      // Download with progress tracking
+      const chunks = [];
+      let downloadedBytes = 0;
+      let lastProgressPercent = 0;
       
-      // Get the response buffer
-      const downloadBuffer = await response.buffer();
+      for await (const chunk of fetchResponse.body) {
+        chunks.push(chunk);
+        downloadedBytes += chunk.length;
+        
+        if (cdnContentLength > 0) {
+          const progressPercent = Math.floor((downloadedBytes / cdnContentLength) * 100);
+          if (progressPercent >= lastProgressPercent + 10) {
+            console.log(`   📥 Downloaded: ${progressPercent}% (${(downloadedBytes / 1024 / 1024).toFixed(2)} MB)`);
+            lastProgressPercent = progressPercent;
+          }
+        }
+      }
       
-      if (!downloadBuffer || downloadBuffer.length < 100000) {
+      const buffer = Buffer.concat(chunks);
+      
+      if (!buffer || buffer.length < 100000) {
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        throw new Error(`Downloaded file is too small (${(downloadBuffer.length / 1024).toFixed(2)} KB). Expected at least 100 KB.`);
+        throw new Error(`Downloaded file is too small (${(buffer.length / 1024).toFixed(2)} KB). Expected at least 100 KB.`);
       }
       
-      console.log(`✅ Download complete: ${(downloadBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+      console.log(`✅ Download complete: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
       
-      // Determine extension from content type (already retrieved above)
+      // Determine extension - default to PDF (1lib.sk primarily serves PDFs)
       let ext = '.pdf';
-      if (contentType.includes('epub') || dlUrl.toLowerCase().includes('.epub')) {
+      if (cdnUrl.toLowerCase().includes('.epub')) {
         ext = '.epub';
       }
       const filename = `${sanitizedTitle}${ext}`;
       const filepath = path.join(bookDir, filename);
       
-      await fsp.writeFile(filepath, downloadBuffer);
+      await fsp.writeFile(filepath, buffer);
       console.log(`✅ Saved: ${filepath}`);
       
       await browser.close();
