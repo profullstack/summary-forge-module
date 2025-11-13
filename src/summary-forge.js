@@ -3320,9 +3320,11 @@ export class SummaryForge {
    * @returns {Promise<Object>} JSON object with processing result
    */
   async processWebPage(url, outputDir = '.') {
-    console.log(`🌐 Processing web page: ${url}`);
+    this.logger.log(`Processing web page: ${url}`);
+    this.logger.progress(0, "Starting web page processing", { step: 'init', url });
     
     // Fetch web page and save as PDF
+    this.logger.progress(2, "Fetching web page with Puppeteer", { step: 'fetch' });
     const webPageResult = await fetchWebPageAsPdf(url, null, {
       headless: this.headless,
       proxyUrl: this.enableProxy ? this.proxyUrl : null,
@@ -3336,12 +3338,13 @@ export class SummaryForge {
     
     // Generate clean title
     const cleanTitle = generateCleanTitle(rawTitle, url);
-    console.log(`📄 Clean title: ${cleanTitle}`);
+    this.logger.log(`Clean title: ${cleanTitle}`);
     
     // Generate title using OpenAI if it's too generic
     let finalTitle = cleanTitle;
     if (cleanTitle.length < 10 || cleanTitle.toLowerCase().includes('webpage')) {
-      console.log("🤖 Generating better title using OpenAI...");
+      this.logger.log("Generating better title using OpenAI...");
+      this.logger.progress(5, "Improving title with AI", { step: 'title_generation' });
       try {
         const titleResp = await this.openai.chat.completions.create({
           model: API_MODEL,
@@ -3361,14 +3364,14 @@ export class SummaryForge {
         const generatedTitle = titleResp.choices[0]?.message?.content?.trim();
         if (generatedTitle && generatedTitle.length > 3) {
           finalTitle = generatedTitle;
-          console.log(`✅ Generated title: ${finalTitle}`);
+          this.logger.log(`Generated title: ${finalTitle}`);
           
           if (titleResp.usage) {
             this.trackOpenAICost(titleResp.usage);
           }
         }
       } catch (titleError) {
-        console.log(`⚠️  Title generation failed, using: ${cleanTitle}`);
+        this.logger.log(`Title generation failed, using: ${cleanTitle}`, 'warn');
       }
     }
     
@@ -3382,24 +3385,26 @@ export class SummaryForge {
     const dirResult = await ensureDirectory(webPageDir, this.force, this.promptFn);
     
     if (!dirResult.created) {
-      console.log(`⏭️  Skipped: Directory already exists and user chose not to overwrite`);
+      this.logger.log("Directory already exists and user chose not to overwrite", 'warn');
       throw new Error('Operation cancelled: Directory already exists');
     }
     
     if (dirResult.overwritten) {
-      console.log(`🔄 Overwritten existing directory: ${webPageDir}`);
+      this.logger.log(`Overwritten existing directory: ${webPageDir}`);
     } else {
-      console.log(`📁 Created directory: ${webPageDir}`);
+      this.logger.log(`Created directory: ${webPageDir}`);
     }
     
     // Move PDF to final location
     const pdfPath = path.join(webPageDir, `${sanitizedTitle}.pdf`);
     await fsp.rename(tempPdfPath, pdfPath);
-    console.log(`✅ Saved PDF: ${pdfPath}`);
+    this.logger.log(`Saved PDF: ${pdfPath}`);
     
       // Generate summary using web page-specific prompting
+      this.logger.progress(10, "Generating summary from web page PDF", { step: 'summary_generation' });
       const summaryResult = await this.generateWebPageSummary(pdfPath, finalTitle, url);
       if (!summaryResult.success) {
+        this.logger.error("Summary generation failed", new Error(summaryResult.error));
         return {
           success: false,
           error: summaryResult.error,
@@ -3410,8 +3415,10 @@ export class SummaryForge {
       const markdown = summaryResult.markdown;
       
       // Generate output files
+      this.logger.progress(96, "Generating output files", { step: 'output_generation' });
       const outputsResult = await this.generateOutputFiles(markdown, sanitizedTitle, webPageDir);
       if (!outputsResult.success) {
+        this.logger.error("Output file generation failed");
         return {
           success: false,
           error: 'Failed to generate output files',
@@ -3451,6 +3458,7 @@ export class SummaryForge {
     const archiveName = path.join(webPageDir, `${dirName}_bundle.tgz`);
     
     // Change to web page directory for tar to create relative paths
+    this.logger.progress(98, "Creating bundle archive", { step: 'bundling' });
     const originalCwd = process.cwd();
     process.chdir(webPageDir);
     
@@ -3458,29 +3466,38 @@ export class SummaryForge {
       // Create bundle with relative paths
       const relativeFiles = files.map(f => path.basename(f));
       await this.sh("tar", ["-czvf", path.basename(archiveName), ...relativeFiles]);
-      console.log(`\n✅ Done: ${archiveName}\n`);
-      console.log(`📚 Bundle contains: ${relativeFiles.join(', ')}`);
+      this.logger.log(`Bundle created: ${archiveName}`);
+      this.logger.log(`Bundle contains: ${relativeFiles.join(', ')}`);
     } finally {
       process.chdir(originalCwd);
     }
     
-    // Play terminal beep to signal completion
-    process.stdout.write('\x07');
-    
-    return {
-      success: true,
-      basename: sanitizedTitle,
-      dirName,
-      markdown,
-      files,
-      directory: webPageDir,
-      archive: archiveName,
-      hasAudio: !!outputs.summaryMp3,
-      url: pageUrl,
-      title: finalTitle,
-      costs: this.getCostSummary(),
-      message: `Successfully processed web page: ${finalTitle}`
-    };
+      // Play terminal beep to signal completion
+      process.stdout.write('\x07');
+      
+      this.logger.progress(100, "Processing complete", { step: 'complete' });
+      this.logger.complete(`Successfully processed web page: ${finalTitle}`, {
+        basename: sanitizedTitle,
+        dirName,
+        files: files.length,
+        hasAudio: !!outputs.summaryMp3,
+        url: pageUrl
+      });
+      
+      return {
+        success: true,
+        basename: sanitizedTitle,
+        dirName,
+        markdown,
+        files,
+        directory: webPageDir,
+        archive: archiveName,
+        hasAudio: !!outputs.summaryMp3,
+        url: pageUrl,
+        title: finalTitle,
+        costs: this.getCostSummary(),
+        message: `Successfully processed web page: ${finalTitle}`
+      };
   }
 
   /**
@@ -3490,15 +3507,20 @@ export class SummaryForge {
    */
   async processFile(filePath, asin = null) {
     try {
+      this.logger.log(`Processing file: ${path.basename(filePath)}`);
+      this.logger.progress(0, "Starting file processing", { step: 'init', file: path.basename(filePath) });
+      
       const ext = path.extname(filePath).toLowerCase();
       let pdfPath = filePath;
       let epubPath = null;
 
       if (ext === '.epub') {
-        console.log(`📖 Input: EPUB file`);
+        this.logger.log("Input: EPUB file");
+        this.logger.progress(2, "Converting EPUB to PDF", { step: 'epub_conversion' });
         epubPath = filePath;
         const conversionResult = await this.convertEpubToPdf(filePath);
         if (!conversionResult.success) {
+          this.logger.error("EPUB conversion failed", new Error(conversionResult.error));
           return {
             success: false,
             error: conversionResult.error,
@@ -3507,12 +3529,15 @@ export class SummaryForge {
           };
         }
         pdfPath = conversionResult.pdfPath;
+        this.logger.log("EPUB converted to PDF successfully");
       } else if (ext === '.pdf') {
-        console.log(`📖 Input: PDF file`);
+        this.logger.log("Input: PDF file");
       } else {
+        const error = `Unsupported file type: ${ext}. Only .pdf and .epub are supported.`;
+        this.logger.error(error);
         return {
           success: false,
-          error: `Unsupported file type: ${ext}. Only .pdf and .epub are supported.`,
+          error,
           basename: null,
           directory: null
         };
@@ -3520,6 +3545,7 @@ export class SummaryForge {
 
     // Extract title from filename for basename (without ASIN)
     const basename = this.sanitizeFilename(path.basename(filePath));
+    this.logger.log(`Basename: ${basename}`);
     
     // Determine if file is already in an uploads directory (from downloadFromAnnasArchive)
     const isInUploadsDir = filePath.includes(path.join('uploads', path.sep));
@@ -3531,7 +3557,7 @@ export class SummaryForge {
       // File is already in the correct directory from downloadFromAnnasArchive
       bookDir = path.dirname(filePath);
       dirName = path.basename(bookDir);
-      console.log(`📁 Using existing directory: ${bookDir}`);
+      this.logger.log(`Using existing directory: ${bookDir}`);
     } else {
       // Create new directory structure for manually provided files
       if (asin) {
@@ -3542,11 +3568,13 @@ export class SummaryForge {
       
       bookDir = path.join('uploads', dirName);
       await fsp.mkdir(bookDir, { recursive: true });
-      console.log(`📁 Created directory: ${bookDir}`);
+      this.logger.log(`Created directory: ${bookDir}`);
     }
     
+    this.logger.progress(3, "Generating summary from PDF", { step: 'summary_generation' });
     const summaryResult = await this.generateSummary(pdfPath);
     if (!summaryResult.success) {
+      this.logger.error("Summary generation failed", new Error(summaryResult.error));
       return {
         success: false,
         error: summaryResult.error,
@@ -3557,8 +3585,10 @@ export class SummaryForge {
     const markdown = summaryResult.markdown;
     
     // Generate output files using basename WITHOUT ASIN
+    this.logger.progress(96, "Generating output files", { step: 'output_generation' });
     const outputsResult = await this.generateOutputFiles(markdown, basename, bookDir);
     if (!outputsResult.success) {
+      this.logger.error("Output file generation failed");
       return {
         success: false,
         error: 'Failed to generate output files',
@@ -3612,6 +3642,7 @@ export class SummaryForge {
     const archiveName = path.join(bookDir, `${dirName}_bundle.tgz`);
     
     // Change to book directory for tar to create relative paths
+    this.logger.progress(98, "Creating bundle archive", { step: 'bundling' });
     const originalCwd = process.cwd();
     process.chdir(bookDir);
     
@@ -3619,14 +3650,22 @@ export class SummaryForge {
       // Create bundle with relative paths
       const relativeFiles = files.map(f => path.basename(f));
       await this.sh("tar", ["-czvf", path.basename(archiveName), ...relativeFiles]);
-      console.log(`\n✅ Done: ${archiveName}\n`);
-      console.log(`📚 Bundle contains: ${relativeFiles.join(', ')}`);
+      this.logger.log(`Bundle created: ${archiveName}`);
+      this.logger.log(`Bundle contains: ${relativeFiles.join(', ')}`);
     } finally {
       process.chdir(originalCwd);
     }
 
       // Play terminal beep to signal completion
       process.stdout.write('\x07');
+      
+      this.logger.progress(100, "Processing complete", { step: 'complete' });
+      this.logger.complete(`Successfully processed file: ${basename}`, {
+        basename,
+        dirName,
+        files: files.length,
+        hasAudio: !!outputs.summaryMp3
+      });
       
       return {
         success: true,
@@ -3642,6 +3681,7 @@ export class SummaryForge {
         message: `Successfully processed file: ${basename}`
       };
     } catch (error) {
+      this.logger.error(`File processing failed: ${error.message}`, error);
       return {
         success: false,
         error: error.message,
