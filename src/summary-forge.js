@@ -14,7 +14,7 @@ import { ElevenLabsClient } from "elevenlabs";
 // puppeteer-core doesn't bundle Chrome and has no browser API dependencies
 import puppeteer from 'puppeteer-core';
 import PDFParse from "pdf-parse";
-import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
+import { extractFlashcards, generateFlashcardsPDF, generateFlashcardImages } from "./flashcards.js";
 import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize } from "./utils/pdf-chunker.js";
 import { ensureDirectory, getDirectoryContents } from "./utils/directory-protection.js";
 import { fetchWebPageAsPdf, generateCleanTitle } from "./utils/web-page.js";
@@ -3137,6 +3137,49 @@ export class SummaryForge {
   }
 
   /**
+   * Strip markdown formatting to create plain text
+   * @private
+   */
+  stripMarkdown(markdown) {
+    let text = markdown;
+    
+    // Remove code blocks
+    text = text.replace(/```[\s\S]*?```/g, '');
+    
+    // Remove inline code
+    text = text.replace(/`([^`]+)`/g, '$1');
+    
+    // Remove images
+    text = text.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1');
+    
+    // Remove links but keep text
+    text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    
+    // Remove headers (keep text, remove # symbols)
+    text = text.replace(/^#{1,6}\s+/gm, '');
+    
+    // Remove bold/italic
+    text = text.replace(/\*\*\*([^*]+)\*\*\*/g, '$1');
+    text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+    text = text.replace(/\*([^*]+)\*/g, '$1');
+    text = text.replace(/___([^_]+)___/g, '$1');
+    text = text.replace(/__([^_]+)__/g, '$1');
+    text = text.replace(/_([^_]+)_/g, '$1');
+    
+    // Remove horizontal rules
+    text = text.replace(/^[-*_]{3,}\s*$/gm, '');
+    
+    // Remove blockquotes
+    text = text.replace(/^>\s+/gm, '');
+    
+    // Clean up excessive whitespace
+    text = text.replace(/\n{3,}/g, '\n\n');
+    text = text.trim();
+    
+    return text;
+  }
+
+  /**
    * Generate output files using Pandoc
    */
   async generateOutputFiles(markdown, basename, outputDir) {
@@ -3148,8 +3191,13 @@ export class SummaryForge {
     const summaryMp3 = path.join(outputDir, `${basename}.summary.mp3`);
     const flashcardsPdf = path.join(outputDir, `${basename}.flashcards.pdf`);
 
+    // Write markdown file
     await fsp.writeFile(summaryMd, markdown, "utf8");
-    await fsp.writeFile(summaryTxt, markdown, "utf8");
+    
+    // Write plain text file (strip markdown formatting)
+    const plainText = this.stripMarkdown(markdown);
+    await fsp.writeFile(summaryTxt, plainText, "utf8");
+    
     console.log(`✅ Wrote ${summaryMd} and ${summaryTxt}`);
 
     console.log("🛠️ Rendering PDF via pandoc...");
@@ -3252,6 +3300,20 @@ export class SummaryForge {
         });
         flashcardsPath = flashcardsPdf;
         console.log(`✅ Generated flashcards PDF: ${flashcardsPdf}`);
+        
+        // Generate flashcard images in ./flashcards subdirectory
+        const flashcardsImagesDir = path.join(outputDir, 'flashcards');
+        console.log(`🖼️  Generating flashcard images in ${flashcardsImagesDir}...`);
+        const imagesResult = await generateFlashcardImages(flashcards.flashcards, flashcardsImagesDir, {
+          title: basename.replace(/_/g, ' '),
+          branding: 'SummaryForge.com'
+        });
+        
+        if (imagesResult.success) {
+          console.log(`✅ Generated ${imagesResult.count} flashcard image pairs (${imagesResult.images.length} total images)`);
+        } else {
+          console.log(`⚠️  Failed to generate flashcard images: ${imagesResult.error}`);
+        }
       } else {
         console.log("⚠️  No flashcards extracted from GPT response");
       }
