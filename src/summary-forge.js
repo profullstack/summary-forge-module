@@ -3188,13 +3188,18 @@ export class SummaryForge {
         }
       }
 
-      await this.sh("tar", ["-czvf", archiveName, ...files]);
-      console.log(`\n✅ Done: ${archiveName}\n`);
+      // Ensure the archive name has .tgz or .tar.gz extension
+      const normalizedArchiveName = archiveName.endsWith('.tgz') || archiveName.endsWith('.tar.gz')
+        ? archiveName
+        : `${archiveName}.tgz`;
+
+      await this.sh("tar", ["-czf", normalizedArchiveName, ...files]);
+      console.log(`\n✅ Done: ${normalizedArchiveName}\n`);
       console.log(`📚 Bundle contains: ${files.join(', ')}`);
       
       return {
         success: true,
-        path: archiveName,
+        path: normalizedArchiveName,
         files: files.length,
         message: `Successfully created bundle with ${files.length} files`
       };
