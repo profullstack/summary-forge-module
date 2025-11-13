@@ -811,7 +811,7 @@ export class SummaryForge {
       console.log(`🌐 Direct connection (no proxy)`);
     }
     
-    const userDataDir = `./puppeteer_search_${sessionId || Date.now()}_${Date.now()}`;
+    const userDataDir = `/tmp/puppeteer_search_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
@@ -826,9 +826,9 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-breakpad',
         '--disable-crash-reporter',
-        '--user-data-dir=/tmp/chrome-user-data',
-        '--data-path=/tmp/chrome-user-data',
-        '--disk-cache-dir=/tmp/chrome-cache',
+        `--user-data-dir=${userDataDir}`,
+        `--data-path=${userDataDir}`,
+        `--disk-cache-dir=${userDataDir}/cache`,
       ],
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
@@ -1090,7 +1090,7 @@ export class SummaryForge {
       console.log(`🌐 Direct connection (no proxy)`);
     }
     
-    const userDataDir = `./puppeteer_1lib_${sessionId || Date.now()}_${Date.now()}`;
+    const userDataDir = `/tmp/puppeteer_1lib_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
@@ -1105,9 +1105,9 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-breakpad',
         '--disable-crash-reporter',
-        '--user-data-dir=/tmp/chrome-user-data',
-        '--data-path=/tmp/chrome-user-data',
-        '--disk-cache-dir=/tmp/chrome-cache',
+        `--user-data-dir=${userDataDir}`,
+        `--data-path=${userDataDir}`,
+        `--disk-cache-dir=${userDataDir}/cache`,
       ],
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
@@ -1381,7 +1381,7 @@ export class SummaryForge {
       console.log(`🌐 Direct connection (no proxy)`);
     }
     
-    const userDataDir = `./puppeteer_1lib_combined_${sessionId || Date.now()}_${Date.now()}`;
+    const userDataDir = `/tmp/puppeteer_1lib_combined_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
@@ -1396,9 +1396,9 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-breakpad',
         '--disable-crash-reporter',
-        '--user-data-dir=/tmp/chrome-user-data',
-        '--data-path=/tmp/chrome-user-data',
-        '--disk-cache-dir=/tmp/chrome-cache',
+        `--user-data-dir=${userDataDir}`,
+        `--data-path=${userDataDir}`,
+        `--disk-cache-dir=${userDataDir}/cache`,
       ],
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
@@ -1625,68 +1625,29 @@ export class SummaryForge {
       console.log(`✅ Found download button with selector: ${clicked.selector}`);
       console.log(`📎 Button href: ${clicked.href}`);
       
-      // Use the downloadUrl from search results (it's fresher than the button href)
-      const dlUrl = selectedBook.downloadUrl || `https://1lib.sk${clicked.href}`;
-      console.log(`📥 Using download URL: ${dlUrl}`);
+      // Use the FRESH href from the button on the page
+      const dlUrl = `https://1lib.sk${clicked.href}`;
+      console.log(`📥 Using download URL from button: ${dlUrl}`);
+      console.log(`🌐 Navigating to download page...`);
       
-      // Get cookies for fetch
-      const cookies = await page.cookies();
-      const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-      
-      // Use fetch to download with progress tracking
-      console.log(`📥 Downloading file...`);
-      
-      const response = await fetch(dlUrl, {
-        headers: {
-          'Cookie': cookieString,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'Referer': selectedBook.url
-        },
-        redirect: 'follow'
+      // Navigate to download URL with Puppeteer (maintains session)
+      const response = await page.goto(dlUrl, {
+        waitUntil: 'networkidle0',
+        timeout: 60000
       });
       
-      if (!response.ok) {
+      // Check if we got redirected to an error page
+      const finalUrl = page.url();
+      if (finalUrl.includes('wrongHash') || finalUrl === 'https://1lib.sk//') {
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        throw new Error('Download link expired or invalid. The book page may need to be refreshed.');
       }
       
-      const contentType = response.headers.get('content-type') || '';
-      console.log(`📄 Content-Type: ${contentType}`);
-      console.log(`📍 Final URL: ${response.url}`);
+      console.log(`✅ Download page loaded: ${finalUrl}`);
       
-      if (contentType.includes('text/html')) {
-        const errorText = await response.text();
-        const debugPath = path.join(bookDir, 'debug-download-error.html');
-        await fsp.writeFile(debugPath, errorText, 'utf8').catch(() => {});
-        
-        await browser.close();
-        await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
-        throw new Error(`Received HTML instead of file. Debug saved to: ${debugPath}`);
-      }
-      
-      // Download with progress
-      const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-      console.log(`📊 File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
-      
-      const chunks = [];
-      let downloadedBytes = 0;
-      let lastProgressPercent = 0;
-      
-      for await (const chunk of response.body) {
-        chunks.push(chunk);
-        downloadedBytes += chunk.length;
-        
-        if (contentLength > 0) {
-          const progressPercent = Math.floor((downloadedBytes / contentLength) * 100);
-          if (progressPercent >= lastProgressPercent + 10) {
-            console.log(`   📥 Downloaded: ${progressPercent}% (${(downloadedBytes / 1024 / 1024).toFixed(2)} MB)`);
-            lastProgressPercent = progressPercent;
-          }
-        }
-      }
-      
-      const downloadBuffer = Buffer.concat(chunks);
+      // Get the response buffer
+      const downloadBuffer = await response.buffer();
       
       if (!downloadBuffer || downloadBuffer.length < 100000) {
         await browser.close();
@@ -1786,7 +1747,7 @@ export class SummaryForge {
       console.log(`🌐 Direct connection (no proxy)`);
     }
     
-    const userDataDir = `./puppeteer_1lib_download_${sessionId || Date.now()}_${Date.now()}`;
+    const userDataDir = `/tmp/puppeteer_1lib_download_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
@@ -1801,9 +1762,9 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-breakpad',
         '--disable-crash-reporter',
-        '--user-data-dir=/tmp/chrome-user-data',
-        '--data-path=/tmp/chrome-user-data',
-        '--disk-cache-dir=/tmp/chrome-cache',
+        `--user-data-dir=${userDataDir}`,
+        `--data-path=${userDataDir}`,
+        `--disk-cache-dir=${userDataDir}/cache`,
       ],
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
@@ -2052,7 +2013,7 @@ export class SummaryForge {
     }
     
     // Use a unique profile per session to avoid conflicts between runs
-    const userDataDir = `./puppeteer_ddg_profile_${sessionId || Date.now()}_${Date.now()}`;
+    const userDataDir = `/tmp/puppeteer_ddg_profile_${sessionId || Date.now()}_${Date.now()}`;
     
     // Default Docker-safe launch options
     const defaultLaunchOptions = {
@@ -2067,9 +2028,9 @@ export class SummaryForge {
         '--disable-background-networking',
         '--disable-breakpad',
         '--disable-crash-reporter',
-        '--user-data-dir=/tmp/chrome-user-data',
-        '--data-path=/tmp/chrome-user-data',
-        '--disk-cache-dir=/tmp/chrome-cache',
+        `--user-data-dir=${userDataDir}`,
+        `--data-path=${userDataDir}`,
+        `--disk-cache-dir=${userDataDir}/cache`,
       ],
       defaultViewport: { width: 1200, height: 800 },
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
