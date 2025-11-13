@@ -39,14 +39,16 @@ export function extractFlashcards(markdown, options = {}) {
   // Pattern 1: Explicit Q&A format
   // **Q: What is X?**
   // A: X is...
-  const qaPattern = /\*\*Q:\s*(.+?\?)\*\*\s*\n\s*A:\s*(.+?)(?=\n\n|\n\*\*Q:|$)/gs;
+  //
+  // (with optional blank line between Q and A)
+  const qaPattern = /\*\*Q:\s*(.+?\?)\*\*\s*\n+\s*A:\s*(.+?)(?=\n\n\*\*Q:|\n\n$|$)/gs;
   let match;
   
   while ((match = qaPattern.exec(markdown)) !== null && flashcards.length < maxCards) {
     const question = cleanMarkdown(match[1].trim());
     const answer = cleanMarkdown(match[2].trim());
     
-    if (question && answer) {
+    if (question && answer && answer.length > 5) {
       flashcards.push({ question, answer, source: 'qa' });
     }
   }

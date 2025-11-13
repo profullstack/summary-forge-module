@@ -134,7 +134,8 @@ export async function fetchWebPageAsPdf(url, outputPath = null, options = {}) {
     // Session ID must be between 1-proxyPoolSize for Webshare sticky sessions
     const sessionId = Math.floor(Math.random() * proxyPoolSize) + 1;
     if (proxyUsername) {
-      finalProxyUsername = `${proxyUsername}-${sessionId}`;
+      // Webshare sticky sessions: remove -rotate suffix and add session ID
+      finalProxyUsername = proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
       console.log(`🔒 Using proxy session ${sessionId} (${finalProxyUsername}@${proxyHost}:${proxyPort})`);
     } else {
       console.log(`🔒 Using proxy: ${proxyHost}:${proxyPort}`);

@@ -791,15 +791,16 @@ export class SummaryForge {
     
     console.log(`🌐 Search URL: ${searchUrl}`);
     
-    // Set up proxy for search
+    // Set up proxy for search (Anna's Archive)
     const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
     const proxyUrlObj = new URL(this.proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    // Webshare sticky sessions: remove -rotate suffix and add session ID
+    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
     const proxyPassword = this.proxyPassword;
     
-    console.log(`🔒 Using proxy session ${sessionId}`);
+    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
     
     const userDataDir = `./puppeteer_search_${sessionId}_${Date.now()}`;
     
@@ -1015,11 +1016,16 @@ export class SummaryForge {
     console.log(`🔍 Searching 1lib.sk for "${query}"...`);
     
     // Build search URL matching 1lib.sk format
-    const params = new URLSearchParams({
-      s: query,
-      order: order,
-      view: view
-    });
+    // Note: 1lib.sk uses /s/ path for search, query params are optional filters
+    const params = new URLSearchParams();
+    
+    // Add order and view if specified
+    if (order) {
+      params.append('order', order);
+    }
+    if (view && view !== 'list') {
+      params.append('view', view);
+    }
     
     // Add year filters
     if (yearFrom) {
@@ -1044,19 +1050,28 @@ export class SummaryForge {
       params.append(`selected_content_types[${idx}]`, type);
     });
     
-    const searchUrl = `https://1lib.sk/s/${encodeURIComponent(query)}/?${params.toString()}`;
+    // Build URL: query in path, filters in query string
+    const paramString = params.toString();
+    const searchUrl = paramString
+      ? `https://1lib.sk/s/${encodeURIComponent(query)}?${paramString}`
+      : `https://1lib.sk/s/${encodeURIComponent(query)}`;
     
+    // Force console output for URLs (bypasses spinner)
     console.log(`🌐 Search URL: ${searchUrl}`);
+    if (paramString) {
+      console.log(`📋 Query parameters: ${paramString}`);
+    }
     
     // Set up proxy for search
     const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
     const proxyUrlObj = new URL(this.proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    // Webshare sticky sessions: remove -rotate suffix and add session ID
+    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
     const proxyPassword = this.proxyPassword;
     
-    console.log(`🔒 Using proxy session ${sessionId}`);
+    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
     
     const userDataDir = `./puppeteer_1lib_${sessionId}_${Date.now()}`;
     
@@ -1087,6 +1102,20 @@ export class SummaryForge {
     
     const browser = await puppeteer.launch(launchOptions);
     
+    // Handle Ctrl-C to close browser gracefully
+    const cleanup = async () => {
+      console.log('\n🛑 Interrupted - closing browser...');
+      try {
+        await browser.close();
+      } catch (e) {
+        // Browser might already be closed
+      }
+      process.exit(0);
+    };
+    
+    process.once('SIGINT', cleanup);
+    process.once('SIGTERM', cleanup);
+    
     try {
       const page = await browser.newPage();
       
@@ -1103,16 +1132,26 @@ export class SummaryForge {
       console.log(`🌐 Navigating to search page...`);
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      // Wait for search results (1lib.sk uses simpler structure)
-      console.log('⏳ Waiting for search results...');
+      console.log(`✅ Page loaded: ${page.url()}`);
+      
+      // Wait for search results (1lib.sk uses z-bookcard custom elements)
+      console.log('⏳ Waiting for search results (z-bookcard elements)...');
       
       // Try to wait for results container
       try {
-        await page.waitForSelector('.resItemBox, .book-item, .itemCoverWrapper', { timeout: 30000 });
+        await page.waitForSelector('z-bookcard', { timeout: 30000 });
         console.log('✅ Search results loaded');
       } catch (selectorError) {
-        // If no results found, return empty array
-        console.log('ℹ️  No results found or page structure different');
+        // Save debug HTML to help diagnose the issue
+        const debugHtml = await page.content();
+        const debugPath = './debug-1lib-search.html';
+        const debugTitle = await page.title();
+        await fsp.writeFile(debugPath, debugHtml, 'utf8');
+        console.log(`ℹ️  No z-bookcard elements found`);
+        console.log(`📄 Page title: "${debugTitle}"`);
+        console.log(`🔗 Current URL: ${page.url()}`);
+        console.log(`💾 Debug HTML saved to: ${debugPath}`);
+        
         await browser.close();
         
         // Clean up browser profile
@@ -1122,7 +1161,14 @@ export class SummaryForge {
           // Ignore cleanup errors
         }
         
-        return [];
+        return {
+          success: true,
+          results: [],
+          count: 0,
+          query,
+          options,
+          message: 'No results found'
+        };
       }
       
       // Extract search results from z-bookcard elements
@@ -1226,6 +1272,10 @@ export class SummaryForge {
         query,
         options
       };
+    } finally {
+      // Remove signal handlers
+      process.removeListener('SIGINT', cleanup);
+      process.removeListener('SIGTERM', cleanup);
     }
   }
 
@@ -1263,11 +1313,15 @@ export class SummaryForge {
     console.log(`🔍 Searching 1lib.sk for "${query}"...`);
     
     // Build search URL
-    const params = new URLSearchParams({
-      s: query,
-      order: order,
-      view: view
-    });
+    const params = new URLSearchParams();
+    
+    // Add order and view if specified
+    if (order) {
+      params.append('order', order);
+    }
+    if (view && view !== 'list') {
+      params.append('view', view);
+    }
     
     if (yearFrom) params.append('yearFrom', yearFrom.toString());
     if (yearTo) params.append('yearTo', yearTo.toString());
@@ -1284,17 +1338,22 @@ export class SummaryForge {
       params.append(`selected_content_types[${idx}]`, type);
     });
     
-    const searchUrl = `https://1lib.sk/s/${encodeURIComponent(query)}/?${params.toString()}`;
+    // Build URL: query in path, filters in query string
+    const paramString = params.toString();
+    const searchUrl = paramString
+      ? `https://1lib.sk/s/${encodeURIComponent(query)}?${paramString}`
+      : `https://1lib.sk/s/${encodeURIComponent(query)}`;
     
     // Set up proxy
     const sessionId = Math.floor(Math.random() * this.proxyPoolSize) + 1;
     const proxyUrlObj = new URL(this.proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    // Webshare sticky sessions: remove -rotate suffix and add session ID
+    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
     const proxyPassword = this.proxyPassword;
     
-    console.log(`🔒 Using proxy session ${sessionId}`);
+    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
     
     const userDataDir = `./puppeteer_1lib_combined_${sessionId}_${Date.now()}`;
     
@@ -1465,9 +1524,11 @@ export class SummaryForge {
       
       // Navigate to book page (same session!)
       console.log(`🌐 Navigating to book page...`);
+      console.log(`📖 Book URL: ${selectedBook.url}`);
+      console.log(`📥 Download URL from search: ${selectedBook.downloadUrl}`);
       await page.goto(selectedBook.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
       
-      console.log(`✅ On book page`);
+      console.log(`✅ On book page: ${page.url()}`);
       
       // Set up response listener to capture download URL
       let downloadUrl = null;
@@ -1554,8 +1615,9 @@ export class SummaryForge {
         throw new Error('Download button not found');
       }
       
-      console.log(`✅ Clicked button with href: ${clicked.href}`);
-      console.log(`⏳ Waiting for download URL (up to 30s)...`);
+      console.log(`✅ Clicked button with selector: ${clicked.selector}`);
+      console.log(`📎 Button href: ${clicked.href}`);
+      console.log(`⏳ Waiting for download URL to be captured (up to 30s)...`);
       
       // Wait for download URL to be captured by response listener
       const maxWait = 30000;
@@ -1572,6 +1634,13 @@ export class SummaryForge {
       if (!downloadUrl) {
         console.error(`❌ Could not capture download URL`);
         console.error(`   The download may have been blocked or the link expired`);
+        console.error(`   Captured ${allResponses.length} responses during wait period`);
+        if (allResponses.length > 0) {
+          console.error(`   Sample responses:`);
+          allResponses.slice(0, 5).forEach((resp, idx) => {
+            console.error(`   ${idx + 1}. ${resp.url.substring(0, 80)} (${resp.contentType})`);
+          });
+        }
         
         await browser.close();
         await fsp.rm(userDataDir, { recursive: true, force: true }).catch(() => {});
@@ -1743,10 +1812,11 @@ export class SummaryForge {
     const proxyUrlObj = new URL(this.proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    // Webshare sticky sessions: remove -rotate suffix and add session ID
+    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
     const proxyPassword = this.proxyPassword;
     
-    console.log(`🔒 Using proxy session ${sessionId}`);
+    console.log(`🔒 Using proxy session ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
     
     const userDataDir = `./puppeteer_1lib_download_${sessionId}_${Date.now()}`;
     
@@ -1995,7 +2065,8 @@ export class SummaryForge {
     const proxyUrlObj = new URL(this.proxyUrl);
     const proxyHost = proxyUrlObj.hostname;
     const proxyPort = parseInt(proxyUrlObj.port) || 80;
-    const proxyUsername = `${this.proxyUsername}-${sessionId}`;
+    // Webshare sticky sessions: remove -rotate suffix and add session ID
+    const proxyUsername = this.proxyUsername.replace(/-rotate$/, '') + `-${sessionId}`;
     const proxyPassword = this.proxyPassword;
     
     console.log(`🔒 Proxy session: ${sessionId} (${proxyUsername}@${proxyHost}:${proxyPort})`);
