@@ -3470,7 +3470,7 @@ export class SummaryForge {
     try {
       // Create bundle with relative paths
       const relativeFiles = files.map(f => path.basename(f));
-      await this.sh("tar", ["-czvf", path.basename(archiveName), ...relativeFiles]);
+      await this.sh("tar", ["-czf", path.basename(archiveName), ...relativeFiles]);
       this.logger.log(`Bundle created: ${archiveName}`);
       this.logger.log(`Bundle contains: ${relativeFiles.join(', ')}`);
     } finally {
@@ -3654,7 +3654,7 @@ export class SummaryForge {
     try {
       // Create bundle with relative paths
       const relativeFiles = files.map(f => path.basename(f));
-      await this.sh("tar", ["-czvf", path.basename(archiveName), ...relativeFiles]);
+      await this.sh("tar", ["-czf", path.basename(archiveName), ...relativeFiles]);
       this.logger.log(`Bundle created: ${archiveName}`);
       this.logger.log(`Bundle contains: ${relativeFiles.join(', ')}`);
     } finally {
