@@ -40,14 +40,16 @@ export function extractFlashcards(markdown, options = {}) {
   // **Q: What is X?**
   // A: X is...
   //
-  // (with optional blank line between Q and A)
-  const qaPattern = /\*\*Q:\s*(.+?\?)\*\*\s*\n+\s*A:\s*(.+?)(?=\n\n\*\*Q:|\n\n$|$)/gs;
+  // (with optional blank lines between Q and A, and between pairs)
+  // Made more flexible to handle various GPT-5 formatting styles
+  const qaPattern = /\*\*Q:\s*(.+?)\*\*\s*\n+\s*A:\s*(.+?)(?=\n+\s*\*\*Q:|\n{3,}|$)/gs;
   let match;
   
   while ((match = qaPattern.exec(markdown)) !== null && flashcards.length < maxCards) {
     const question = cleanMarkdown(match[1].trim());
     const answer = cleanMarkdown(match[2].trim());
     
+    // Accept questions with or without question marks
     if (question && answer && answer.length > 5) {
       flashcards.push({ question, answer, source: 'qa' });
     }
