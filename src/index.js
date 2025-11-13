@@ -19,6 +19,7 @@
  */
 
 export { SummaryForge } from './summary-forge.js';
+export { SSELogger } from './utils/sse-logger.js';
 export { extractFlashcards, generateFlashcardsPDF } from './flashcards.js';
 export {
   loadConfig,

@@ -18,6 +18,7 @@ import { extractFlashcards, generateFlashcardsPDF } from "./flashcards.js";
 import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize } from "./utils/pdf-chunker.js";
 import { ensureDirectory, getDirectoryContents } from "./utils/directory-protection.js";
 import { fetchWebPageAsPdf, generateCleanTitle } from "./utils/web-page.js";
+import { SSELogger } from "./utils/sse-logger.js";
 
 const API_MODEL = "gpt-5";
 
@@ -51,6 +52,10 @@ export class SummaryForge {
     // Directory overwrite protection
     this.force = config.force ?? false;
     this.promptFn = config.promptFn ?? null; // For interactive prompts
+    
+    // SSE Logger configuration
+    // If logger is provided, use it; otherwise create console logger for CLI compatibility
+    this.logger = config.logger ?? SSELogger.createConsoleLogger();
     
     if (!this.openaiApiKey) {
       throw new Error("OpenAI API key is required");
@@ -2424,7 +2429,12 @@ export class SummaryForge {
 
     const userPrompt = `Summarize this section of the book (pages ${startPage}-${endPage}):\n\n${chunkText}`;
 
-    console.log(`   🧠 Processing chunk ${chunkIndex + 1}/${totalChunks} (pages ${startPage}-${endPage})...`);
+    this.logger.log(`Processing chunk ${chunkIndex + 1}/${totalChunks} (pages ${startPage}-${endPage})...`);
+    this.logger.progress(
+      ((chunkIndex + 1) / totalChunks) * 80, // Reserve 20% for synthesis
+      `Processing chunk ${chunkIndex + 1}/${totalChunks}`,
+      { step: 'chunk_processing', current: chunkIndex + 1, total: totalChunks }
+    );
 
     const resp = await this.openai.chat.completions.create({
       model: API_MODEL,
@@ -2437,7 +2447,11 @@ export class SummaryForge {
 
     if (resp.usage) {
       const cost = this.trackOpenAICost(resp.usage);
-      console.log(`   💰 Chunk ${chunkIndex + 1} cost: $${cost.toFixed(4)} (${resp.usage.prompt_tokens} in, ${resp.usage.completion_tokens} out)`);
+      this.logger.log(
+        `Chunk ${chunkIndex + 1} cost: $${cost.toFixed(4)} (${resp.usage.prompt_tokens} in, ${resp.usage.completion_tokens} out)`,
+        'info',
+        { step: 'cost_tracking', cost, tokens: resp.usage }
+      );
     }
 
     const summary = resp.choices[0]?.message?.content ?? "";
@@ -2445,7 +2459,7 @@ export class SummaryForge {
       throw new Error(`Chunk ${chunkIndex + 1} returned unexpectedly short content`);
     }
 
-    console.log(`   ✅ Chunk ${chunkIndex + 1} processed: ${summary.length} chars`);
+    this.logger.log(`Chunk ${chunkIndex + 1} processed: ${summary.length} chars`);
     return summary;
   }
 
@@ -2454,7 +2468,8 @@ export class SummaryForge {
    * @private
    */
   async synthesizeChunkSummaries(chunkSummaries, bookTitle = "the book") {
-    console.log("🔄 Synthesizing chunk summaries into final comprehensive summary...");
+    this.logger.log("Synthesizing chunk summaries into final comprehensive summary...");
+    this.logger.progress(85, "Synthesizing final summary", { step: 'synthesis' });
 
     const combinedText = chunkSummaries
       .map((summary, idx) => `## Section ${idx + 1}\n\n${summary}`)
@@ -2501,7 +2516,11 @@ export class SummaryForge {
 
     if (resp.usage) {
       const cost = this.trackOpenAICost(resp.usage);
-      console.log(`💰 Synthesis cost: $${cost.toFixed(4)} (${resp.usage.prompt_tokens} in, ${resp.usage.completion_tokens} out)`);
+      this.logger.log(
+        `Synthesis cost: $${cost.toFixed(4)} (${resp.usage.prompt_tokens} in, ${resp.usage.completion_tokens} out)`,
+        'info',
+        { step: 'cost_tracking', cost, tokens: resp.usage }
+      );
     }
 
     const finalSummary = resp.choices[0]?.message?.content ?? "";
@@ -2509,7 +2528,8 @@ export class SummaryForge {
       throw new Error("Synthesis returned unexpectedly short content");
     }
 
-    console.log(`✅ Final summary synthesized: ${finalSummary.length} chars`);
+    this.logger.log(`Final summary synthesized: ${finalSummary.length} chars`);
+    this.logger.progress(95, "Summary synthesis complete", { step: 'synthesis_complete' });
     return finalSummary;
   }
 
@@ -2518,17 +2538,19 @@ export class SummaryForge {
    * Returns JSON object with summary result
    */
   async generateSummary(pdfPath) {
-    console.log("📖 Processing PDF...");
+    this.logger.log("Processing PDF...");
+    this.logger.progress(5, "Starting PDF processing", { step: 'init' });
     
     // Get file stats
     const stats = await fsp.stat(pdfPath);
     const pdfSizeKB = (stats.size / 1024).toFixed(2);
     const pdfSizeMB = (stats.size / 1024 / 1024).toFixed(2);
-    console.log(`📊 PDF size: ${pdfSizeMB} MB (${pdfSizeKB} KB)`);
+    this.logger.log(`PDF size: ${pdfSizeMB} MB (${pdfSizeKB} KB)`);
     
     // Try GPT-5 with file upload first
     try {
-      console.log("🔄 Attempting GPT-5 with PDF file upload...");
+      this.logger.log("Attempting GPT-5 with PDF file upload...");
+      this.logger.progress(10, "Uploading PDF to OpenAI", { step: 'upload' });
       
       // Upload PDF file to OpenAI
       const fileStream = fs.createReadStream(pdfPath);
@@ -2537,7 +2559,8 @@ export class SummaryForge {
         purpose: 'user_data'
       });
       
-      console.log(`✅ PDF uploaded. File ID: ${file.id}`);
+      this.logger.log(`PDF uploaded. File ID: ${file.id}`);
+      this.logger.progress(20, "PDF uploaded successfully", { step: 'upload_complete' });
       
       const systemPrompt = [
         "You are an expert technical writer. Produce a single, self-contained Markdown file.",
@@ -2559,7 +2582,8 @@ export class SummaryForge {
 
       const userPrompt = "Read the attached PDF and produce the full Markdown summary described above. Output ONLY Markdown content (no JSON, no preambles).";
 
-      console.log("🧠 Asking GPT-5 to generate summary from PDF file...");
+      this.logger.log("Asking GPT-5 to generate summary from PDF file...");
+      this.logger.progress(30, "Generating summary with AI", { step: 'ai_generation' });
       
       const resp = await this.openai.chat.completions.create({
         model: API_MODEL,
@@ -2579,16 +2603,19 @@ export class SummaryForge {
       // Track OpenAI costs
       if (resp.usage) {
         const cost = this.trackOpenAICost(resp.usage);
-        console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
-        console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+        this.logger.log(`OpenAI cost: $${cost.toFixed(4)}`, 'info', {
+          step: 'cost_tracking',
+          cost,
+          tokens: { input: resp.usage.prompt_tokens, output: resp.usage.completion_tokens }
+        });
       }
 
       // Clean up uploaded file
       try {
         await this.openai.files.delete(file.id);
-        console.log(`🗑️  Cleaned up uploaded file`);
+        this.logger.log("Cleaned up uploaded file");
       } catch (cleanupError) {
-        console.log(`⚠️  Warning: Could not delete uploaded file: ${cleanupError.message}`);
+        this.logger.log(`Warning: Could not delete uploaded file: ${cleanupError.message}`, 'warn');
       }
 
       const md = resp.choices[0]?.message?.content ?? "";
@@ -2596,7 +2623,8 @@ export class SummaryForge {
         throw new Error("Model returned unexpectedly short content");
       }
 
-      console.log("✅ Successfully generated summary using GPT-5 with PDF file");
+      this.logger.log("Successfully generated summary using GPT-5 with PDF file");
+      this.logger.progress(90, "Summary generation complete", { step: 'generation_complete' });
       return {
         success: true,
         markdown: md,
@@ -2607,25 +2635,30 @@ export class SummaryForge {
       
     } catch (fileUploadError) {
       // Log the file upload error
-      console.error(`⚠️  GPT-5 PDF file upload failed: ${fileUploadError.message}`);
+      this.logger.log(`GPT-5 PDF file upload failed: ${fileUploadError.message}`, 'warn');
       if (fileUploadError.response) {
-        console.error(`   API Error: ${fileUploadError.response.status} - ${JSON.stringify(fileUploadError.response.data)}`);
+        this.logger.log(`API Error: ${fileUploadError.response.status}`, 'error', {
+          status: fileUploadError.response.status,
+          data: fileUploadError.response.data
+        });
       }
       
       // Fallback to intelligent chunked text extraction
-      console.log("🔄 Falling back to intelligent chunked text extraction...");
+      this.logger.log("Falling back to intelligent chunked text extraction...");
+      this.logger.progress(15, "Using fallback text extraction method", { step: 'fallback' });
       
       try {
         // Get PDF statistics
         const stats = await getPdfStats(pdfPath);
-        console.log(`📊 PDF Stats: ${stats.totalPages} pages, ${stats.totalChars.toLocaleString()} chars, ~${stats.estimatedTokens.toLocaleString()} tokens`);
+        this.logger.log(`PDF Stats: ${stats.totalPages} pages, ${stats.totalChars.toLocaleString()} chars, ~${stats.estimatedTokens.toLocaleString()} tokens`);
         
         // Determine if we need chunking
         const needsChunking = stats.totalChars > this.maxChars;
         
         if (!needsChunking) {
           // Small PDF - process normally without chunking
-          console.log("📄 PDF is small enough to process in one request");
+          this.logger.log("PDF is small enough to process in one request");
+          this.logger.progress(25, "Processing PDF in single request", { step: 'single_request' });
           
           const pdfBuffer = await fsp.readFile(pdfPath);
           const result = await PDFParse(pdfBuffer);
@@ -2656,7 +2689,8 @@ export class SummaryForge {
 
           const userPrompt = `Read the following book text and produce the full Markdown summary described above. Output ONLY Markdown content (no JSON, no preambles).\n\n${extractedText}`;
 
-          console.log("🧠 Asking GPT-5 to generate summary from extracted text...");
+          this.logger.log("Asking GPT-5 to generate summary from extracted text...");
+          this.logger.progress(40, "Generating summary with AI", { step: 'ai_generation' });
           
           const resp = await this.openai.chat.completions.create({
             model: API_MODEL,
@@ -2669,8 +2703,11 @@ export class SummaryForge {
 
           if (resp.usage) {
             const cost = this.trackOpenAICost(resp.usage);
-            console.log(`💰 OpenAI cost: $${cost.toFixed(4)}`);
-            console.log(`📊 Tokens used: ${resp.usage.prompt_tokens} input, ${resp.usage.completion_tokens} output`);
+            this.logger.log(`OpenAI cost: $${cost.toFixed(4)}`, 'info', {
+              step: 'cost_tracking',
+              cost,
+              tokens: { input: resp.usage.prompt_tokens, output: resp.usage.completion_tokens }
+            });
           }
 
           const md = resp.choices[0]?.message?.content ?? "";
@@ -2678,7 +2715,8 @@ export class SummaryForge {
             throw new Error("Model returned unexpectedly short content");
           }
 
-          console.log("✅ Successfully generated summary using text extraction");
+          this.logger.log("Successfully generated summary using text extraction");
+          this.logger.progress(90, "Summary generation complete", { step: 'generation_complete' });
           return {
             success: true,
             markdown: md,
@@ -2689,29 +2727,31 @@ export class SummaryForge {
         }
         
         // Large PDF - use intelligent chunking
-        console.log("📚 PDF is large - using intelligent chunking strategy");
-        console.log(`   This will process the ENTIRE ${stats.totalPages}-page PDF without truncation`);
+        this.logger.log("PDF is large - using intelligent chunking strategy");
+        this.logger.log(`This will process the ENTIRE ${stats.totalPages}-page PDF without truncation`);
+        this.logger.progress(20, "Preparing chunked processing", { step: 'chunking_prep' });
         
         // Extract pages
-        console.log("📄 Extracting pages from PDF...");
+        this.logger.log("Extracting pages from PDF...");
         const pages = await extractPdfPages(pdfPath);
-        console.log(`✅ Extracted ${pages.length} pages`);
+        this.logger.log(`Extracted ${pages.length} pages`);
         
         // Calculate optimal chunk size
         const optimalChunkSize = calculateOptimalChunkSize(stats.totalChars, 100000);
-        console.log(`📐 Using chunk size: ${optimalChunkSize.toLocaleString()} chars`);
+        this.logger.log(`Using chunk size: ${optimalChunkSize.toLocaleString()} chars`);
         
         // Create chunks
         const chunks = createChunks(pages, optimalChunkSize);
-        console.log(`📦 Created ${chunks.length} chunks for processing`);
+        this.logger.log(`Created ${chunks.length} chunks for processing`);
         
         // Display chunk information
         chunks.forEach((chunk, idx) => {
-          console.log(`   Chunk ${idx + 1}: Pages ${chunk.startPage}-${chunk.endPage} (${chunk.charCount.toLocaleString()} chars)`);
+          this.logger.log(`Chunk ${idx + 1}: Pages ${chunk.startPage}-${chunk.endPage} (${chunk.charCount.toLocaleString()} chars)`, 'debug');
         });
         
         // Process each chunk
-        console.log("\n🔄 Processing chunks...");
+        this.logger.log("Processing chunks...");
+        this.logger.progress(25, `Processing ${chunks.length} chunks`, { step: 'chunk_processing_start', total: chunks.length });
         const chunkSummaries = [];
         
         for (let i = 0; i < chunks.length; i++) {
@@ -2726,20 +2766,22 @@ export class SummaryForge {
             );
             chunkSummaries.push(summary);
           } catch (chunkError) {
-            console.error(`   ❌ Failed to process chunk ${i + 1}: ${chunkError.message}`);
+            this.logger.error(`Failed to process chunk ${i + 1}: ${chunkError.message}`, chunkError);
             throw new Error(`Chunk processing failed at chunk ${i + 1}: ${chunkError.message}`);
           }
         }
         
-        console.log(`\n✅ All ${chunks.length} chunks processed successfully`);
+        this.logger.log(`All ${chunks.length} chunks processed successfully`);
+        this.logger.progress(80, "All chunks processed", { step: 'chunks_complete' });
         
         // Synthesize chunks into final summary
         const bookTitle = pdfPath.split('/').pop().replace(/\.pdf$/i, '').replace(/_/g, ' ');
         const finalSummary = await this.synthesizeChunkSummaries(chunkSummaries, bookTitle);
         
-        console.log("✅ Successfully generated comprehensive summary using intelligent chunking");
-        console.log(`📊 Final summary: ${finalSummary.length.toLocaleString()} characters`);
-        console.log("⚠️  Note: Images/diagrams from PDF were not included (text-only extraction)");
+        this.logger.log("Successfully generated comprehensive summary using intelligent chunking");
+        this.logger.log(`Final summary: ${finalSummary.length.toLocaleString()} characters`);
+        this.logger.log("Note: Images/diagrams from PDF were not included (text-only extraction)", 'info');
+        this.logger.progress(95, "Summary complete", { step: 'complete' });
         
         return {
           success: true,
