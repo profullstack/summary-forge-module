@@ -6,6 +6,7 @@
 import puppeteer from 'puppeteer-core';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { CloudflareSolver } from './cloudflare-solver.js';
 import { CaptchaSolver } from './captcha-solver.js';
 
 /**
@@ -115,76 +116,199 @@ export async function detectCloudflareChallenge(page) {
       return { hasChallenge: false };
     }
     
-    // Try to find Turnstile sitekey
+    // Try to find Turnstile sitekey with multiple methods
     let sitekey = null;
+    let foundMethod = null;
     
-    // Method 1: Look for Turnstile div
+    // Method 1: Look for Turnstile div with data-sitekey
     const turnstileDiv = document.querySelector('[data-sitekey]');
     if (turnstileDiv) {
       sitekey = turnstileDiv.getAttribute('data-sitekey');
+      foundMethod = 'data-sitekey attribute';
     }
     
-    // Method 2: Look in script tags
+    // Method 2: Look for cf-turnstile element
     if (!sitekey) {
-      const scripts = Array.from(document.querySelectorAll('script'));
-      for (const script of scripts) {
-        const match = script.textContent.match(/sitekey["\s:=]+["']([^"']+)["']/i);
-        if (match) {
-          sitekey = match[1];
-          break;
+      const cfTurnstile = document.querySelector('cf-turnstile, [class*="turnstile"], [id*="turnstile"]');
+      if (cfTurnstile) {
+        sitekey = cfTurnstile.getAttribute('data-sitekey') ||
+                  cfTurnstile.getAttribute('sitekey');
+        if (sitekey) foundMethod = 'cf-turnstile element';
+      }
+    }
+    
+    // Method 3: Look in iframes
+    if (!sitekey) {
+      const iframes = document.querySelectorAll('iframe');
+      for (const iframe of iframes) {
+        const src = iframe.getAttribute('src') || '';
+        if (src.includes('challenges.cloudflare.com') || src.includes('turnstile')) {
+          const match = src.match(/sitekey=([^&]+)/);
+          if (match) {
+            sitekey = match[1];
+            foundMethod = 'iframe src';
+            break;
+          }
         }
       }
     }
     
+    // Method 4: Look in script tags
+    if (!sitekey) {
+      const scripts = Array.from(document.querySelectorAll('script'));
+      for (const script of scripts) {
+        // Try multiple patterns
+        const patterns = [
+          /sitekey["\s:=]+["']([^"']+)["']/i,
+          /data-sitekey=["']([^"']+)["']/i,
+          /'sitekey':\s*["']([^"']+)["']/i,
+          /"sitekey":\s*["']([^"']+)["']/i
+        ];
+        
+        for (const pattern of patterns) {
+          const match = script.textContent.match(pattern);
+          if (match) {
+            sitekey = match[1];
+            foundMethod = 'script tag';
+            break;
+          }
+        }
+        if (sitekey) break;
+      }
+    }
+    
+    // Method 5: Look in window object
+    if (!sitekey && window.turnstile) {
+      try {
+        sitekey = window.turnstile.sitekey || window.turnstile._sitekey;
+        if (sitekey) foundMethod = 'window.turnstile';
+      } catch (e) {}
+    }
+    
+    // Debug info
+    const debugInfo = {
+      title: document.title,
+      hasTurnstileDiv: !!document.querySelector('[data-sitekey]'),
+      hasCfTurnstile: !!document.querySelector('cf-turnstile, [class*="turnstile"], [id*="turnstile"]'),
+      iframeCount: document.querySelectorAll('iframe').length,
+      scriptCount: document.querySelectorAll('script').length
+    };
+    
     return {
       hasChallenge: true,
       sitekey,
-      challengeType: 'cloudflare-turnstile'
+      challengeType: 'cloudflare-turnstile',
+      foundMethod,
+      debugInfo
     };
   });
 }
 
 /**
- * Navigate to URL and handle DDoS-Guard and Cloudflare challenges
+ * Navigate to URL and handle Cloudflare and DDoS-Guard challenges
+ * Automatically detects and solves both Cloudflare Turnstile and DDoS-Guard CAPTCHAs
  */
-export async function navigateWithDdgBypass(page, url, twocaptchaApiKey = null) {
+export async function navigateWithChallengeBypass(page, url, twocaptchaApiKey = null) {
   console.log(`🌐 Navigating to: ${url}`);
+  
+  // If we have a 2captcha API key, set up Turnstile interception BEFORE navigation
+  if (twocaptchaApiKey) {
+    const cloudflareSolver = new CloudflareSolver(twocaptchaApiKey);
+    await cloudflareSolver.interceptTurnstileRender(page);
+    console.log('🔧 Turnstile interception script injected');
+  }
   
   const navOptions = { waitUntil: 'domcontentloaded', timeout: 90000 };
   await page.goto(url, navOptions);
 
   // Check for Cloudflare challenge first
   console.log('🔍 Checking for Cloudflare challenge...');
-  const cloudflareInfo = await detectCloudflareChallenge(page);
+  let cloudflareInfo = await detectCloudflareChallenge(page);
   
   if (cloudflareInfo.hasChallenge) {
     console.log('🛡️  Cloudflare challenge detected!');
     
-    if (twocaptchaApiKey && cloudflareInfo.sitekey) {
-      console.log('🔑 Attempting to solve with 2captcha...');
-      const solver = new CaptchaSolver(twocaptchaApiKey);
-      const solved = await solver.solve(page);
+    if (twocaptchaApiKey) {
+      // Cloudflare may show multiple challenges in sequence
+      // Try up to 3 times to handle chained challenges
+      // Use same solver instance to preserve cached sitekey
+      const cloudflareSolver = new CloudflareSolver(twocaptchaApiKey);
+      let solveAttempts = 0;
+      const maxSolveAttempts = 3;
       
-      if (solved) {
+      while (solveAttempts < maxSolveAttempts) {
+        solveAttempts++;
+        console.log(`🔑 Solving attempt ${solveAttempts}/${maxSolveAttempts}...`);
+        
+        const solved = await cloudflareSolver.solve(page);
+        
+        if (!solved) {
+          console.log('⚠️  Failed to solve Cloudflare challenge with 2captcha');
+          break;
+        }
+        
         console.log('✅ Cloudflare challenge solved!');
-        // Wait for page to process the solution
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Wait for page to process the solution and redirect
+        await new Promise(resolve => setTimeout(resolve, 5000));
         
         // Check if we're still on challenge page
         const stillOnChallenge = await detectCloudflareChallenge(page);
         if (!stillOnChallenge.hasChallenge) {
-          console.log('✅ Successfully bypassed Cloudflare');
-          return;
+          console.log('✅ Successfully bypassed all Cloudflare challenges');
+          return; // Exit early - don't try DDoS-Guard logic
+        } else {
+          console.log(`⚠️  Another Cloudflare challenge appeared (attempt ${solveAttempts}/${maxSolveAttempts})`);
+          if (solveAttempts < maxSolveAttempts) {
+            console.log('🔄 Solving next challenge...');
+            // Re-inject interception directly into the current page (not evaluateOnNewDocument)
+            await page.evaluate(() => {
+              window.turnstileParams = null;
+              window.tsCallback = null;
+              
+              console.log('[CloudflareSolver] Re-injecting interception for new challenge');
+              
+              const checkInterval = setInterval(() => {
+                if (window.turnstile) {
+                  console.log('[CloudflareSolver] Found window.turnstile object');
+                  clearInterval(checkInterval);
+                  
+                  const originalRender = window.turnstile.render;
+                  window.turnstile.render = (container, params) => {
+                    console.log('[CloudflareSolver] turnstile.render() called!');
+                    window.turnstileParams = {
+                      sitekey: params.sitekey,
+                      action: params.action,
+                      cData: params.cData,
+                      chlPageData: params.chlPageData
+                    };
+                    window.tsCallback = params.callback;
+                    console.log('[CloudflareSolver] Intercepted params:', JSON.stringify(window.turnstileParams));
+                    return originalRender(container, params);
+                  };
+                  console.log('[CloudflareSolver] Render function intercepted');
+                }
+              }, 10);
+              
+              setTimeout(() => {
+                clearInterval(checkInterval);
+                if (!window.turnstile) {
+                  console.log('[CloudflareSolver] Timeout: window.turnstile never appeared');
+                }
+              }, 30000);
+            });
+          }
         }
-      } else {
-        console.log('⚠️  Failed to solve Cloudflare challenge with 2captcha');
       }
-    } else if (!twocaptchaApiKey) {
+      
+      console.log('⚠️  Max solve attempts reached, challenges may be chained indefinitely');
+    } else {
       console.log('⚠️  2captcha API key not provided - cannot solve Cloudflare challenge');
       console.log('   Set TWOCAPTCHA_API_KEY environment variable to enable automatic solving');
-    } else {
-      console.log('⚠️  Could not find Cloudflare sitekey - cannot solve challenge');
     }
+    
+    // If we detected Cloudflare but couldn't solve it, don't try DDoS-Guard logic
+    console.log('⚠️  Cloudflare challenge present but not solved - skipping DDoS-Guard logic');
+    return;
   }
 
   // Try to click any "verify/continue" button that appears
@@ -240,10 +364,10 @@ export async function navigateWithDdgBypass(page, url, twocaptchaApiKey = null) 
 }
 
 /**
- * Get download URL using Puppeteer with DDoS-Guard bypass
+ * Get download URL using Puppeteer with challenge bypass (Cloudflare + DDoS-Guard)
  */
 export async function getDownloadUrlWithPuppeteer(url, page, outputDir, twocaptchaApiKey = null) {
-  await navigateWithDdgBypass(page, url, twocaptchaApiKey);
+  await navigateWithChallengeBypass(page, url, twocaptchaApiKey);
 
   // Get final page content
   const title = await page.title();

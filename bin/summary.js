@@ -1363,7 +1363,215 @@ async function search1libAndDisplay(title, force = false) {
   }
 }
 
-// Helper function for Anna's Archive search and display
+// Helper function for Anna's Archive search by query
+async function searchAnnasArchive(query, options) {
+  try {
+    const result = await loadConfig();
+    
+    if (!result.success || !result.config) {
+      console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+      process.exit(1);
+    }
+    
+    const config = { ...result.config };
+    config.force = false;
+    
+    config.promptFn = async (dirPath) => {
+      const { action } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'action',
+          message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+          choices: [
+            { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+            { name: 'Skip (cancel operation)', value: 'skip' },
+            { name: 'Cancel', value: 'cancel' }
+          ]
+        }
+      ]);
+      return action;
+    };
+    
+    const forge = new SummaryForge(config);
+    
+    const maxResults = parseInt(options.maxResults, 10);
+    const yearFrom = options.yearFrom ? parseInt(options.yearFrom, 10) : null;
+    const yearTo = options.yearTo ? parseInt(options.yearTo, 10) : null;
+    const languages = options.languages ? options.languages.split(',').map(l => l.trim()) : [];
+    const extensions = options.extensions ? options.extensions.split(',').map(e => e.trim().toUpperCase()) : [];
+    const sources = options.sources ? options.sources.split(',').map(s => s.trim()) : undefined;
+    
+    const spinner = ora(`Searching Anna's Archive for "${query}"...`).start();
+    
+    const searchResult = await forge.searchAnnasArchive(query, {
+      maxResults,
+      yearFrom,
+      yearTo,
+      languages,
+      extensions,
+      sources,
+      order: options.order,
+      view: options.view
+    });
+    
+    spinner.stop();
+    
+    if (!searchResult.success) {
+      console.error(chalk.red(`\n❌ Search failed: ${searchResult.error}`));
+      if (searchResult.error?.includes('Proxy configuration')) {
+        console.log(chalk.yellow('\n💡 Tip: Enable proxy with: summary config --proxy true'));
+        console.log(chalk.gray('   Anna\'s Archive requires proxy access\n'));
+      }
+      return;
+    }
+    
+    const results = searchResult.results;
+    
+    if (results.length === 0) {
+      console.log(chalk.yellow('\n📚 No results found'));
+      return;
+    }
+    
+    console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+    
+    // Display results
+    results.forEach((result, idx) => {
+      console.log(chalk.white(`${idx + 1}. ${result.title}`));
+      if (result.author) {
+        console.log(chalk.gray(`   Author: ${result.author}`));
+      }
+      if (result.year) {
+        console.log(chalk.gray(`   Year: ${result.year}`));
+      }
+      console.log(chalk.gray(`   Format: ${result.format} | Size: ${result.sizeInMB.toFixed(1)}MB`));
+      if (result.language) {
+        console.log(chalk.gray(`   Language: ${result.language}`));
+      }
+      console.log('');
+    });
+    
+    // Ask user to select a book
+    const { selectedIndex } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'selectedIndex',
+        message: 'Select a book to download:',
+        choices: [
+          ...results.map((result, idx) => ({
+            name: `${result.title} (${result.format}, ${result.sizeInMB.toFixed(1)}MB)`,
+            value: idx
+          })),
+          { name: chalk.gray('Cancel'), value: -1 }
+        ],
+        pageSize: 15
+      }
+    ]);
+    
+    if (selectedIndex === -1) {
+      console.log(chalk.gray('Cancelled.'));
+      return;
+    }
+    
+    const selectedBook = results[selectedIndex];
+    console.log(chalk.blue(`\n📖 Selected: ${selectedBook.title}`));
+    console.log(chalk.cyan(`🔗 Book page: ${selectedBook.url}`));
+    
+    // Note: Anna's Archive doesn't support automated downloads via the search API
+    // The downloadFromAnnasArchive method requires an ASIN/ISBN, not a direct URL
+    console.log(chalk.yellow('\n💡 Anna\'s Archive requires manual download.'));
+    console.log(chalk.gray('   Please visit the URL above to download the book.'));
+    console.log(chalk.gray('   Once downloaded, you can process it with:'));
+    console.log(chalk.cyan(`   summary file <path-to-downloaded-file>\n`));
+    
+  } catch (error) {
+    console.error(chalk.red(`\n❌ Error: ${error.message}`));
+    process.exit(1);
+  }
+}
+
+// Helper function for Anna's Archive ISBN lookup
+async function isbnAnnasArchive(isbn, force = false) {
+  try {
+    const result = await loadConfig();
+    
+    if (!result.success || !result.config) {
+      console.error(chalk.red('\n❌ Error: No configuration found. Please run "summary setup" first.\n'));
+      process.exit(1);
+    }
+    
+    const config = { ...result.config };
+    config.force = force;
+    
+    if (!force) {
+      config.promptFn = async (dirPath) => {
+        const { action } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'action',
+            message: `Directory already exists: ${dirPath}\nWhat would you like to do?`,
+            choices: [
+              { name: 'Overwrite (delete and recreate)', value: 'overwrite' },
+              { name: 'Skip (cancel operation)', value: 'skip' },
+              { name: 'Cancel', value: 'cancel' }
+            ]
+          }
+        ]);
+        return action;
+      };
+    }
+    
+    const forge = new SummaryForge(config);
+    
+    const spinner = ora(`Searching Anna's Archive for ISBN ${isbn}...`).start();
+    
+    const searchResult = await forge.searchAnnasArchive(isbn, {
+      maxResults: 5,
+      extensions: ['PDF']
+    });
+    
+    spinner.stop();
+    
+    if (!searchResult.success) {
+      console.error(chalk.red(`\n❌ Search failed: ${searchResult.error}`));
+      if (searchResult.error?.includes('Proxy configuration')) {
+        console.log(chalk.yellow('\n💡 Tip: Enable proxy with: summary config --proxy true'));
+        console.log(chalk.gray('   Anna\'s Archive requires proxy access\n'));
+      }
+      return;
+    }
+    
+    const results = searchResult.results;
+    
+    if (results.length === 0) {
+      console.log(chalk.yellow('\n📚 No results found for this ISBN'));
+      return;
+    }
+    
+    console.log(chalk.blue(`\n📚 Found ${results.length} results:\n`));
+    
+    // Display results
+    results.forEach((result, idx) => {
+      console.log(chalk.white(`${idx + 1}. ${result.title}`));
+      if (result.author) {
+        console.log(chalk.gray(`   Author: ${result.author}`));
+      }
+      if (result.year) {
+        console.log(chalk.gray(`   Year: ${result.year}`));
+      }
+      console.log(chalk.gray(`   Format: ${result.extension} | Size: ${result.size}`));
+      console.log(chalk.cyan(`   URL: ${result.url}`));
+      console.log('');
+    });
+    
+    console.log(chalk.yellow('\n💡 Note: Visit the URLs above to download books manually from Anna\'s Archive.\n'));
+    
+  } catch (error) {
+    console.error(chalk.red(`\n❌ Error: ${error.message}`));
+    process.exit(1);
+  }
+}
+
+// Helper function for Anna's Archive search and display (legacy)
 async function searchAndDisplay(title, force = false) {
   try {
     const spinner = ora('Searching Amazon...').start();

@@ -1,6 +1,6 @@
 /**
  * CAPTCHA Solver Utility
- * Handles CAPTCHA solving using 2captcha service
+ * Handles DDoS-Guard and hCaptcha solving using 2captcha service API v1
  */
 
 export class CaptchaSolver {
@@ -78,7 +78,7 @@ export class CaptchaSolver {
 
     console.log("🔑 Sitekey:", captchaInfo.sitekey);
 
-    // Submit CAPTCHA to 2captcha
+    // Submit CAPTCHA to 2captcha using v1 API
     const submitUrl = `https://2captcha.com/in.php?key=${this.apiKey}&method=hcaptcha&sitekey=${captchaInfo.sitekey}&pageurl=${encodeURIComponent(page.url())}`;
     
     console.log("📤 Submitting CAPTCHA to 2captcha...");

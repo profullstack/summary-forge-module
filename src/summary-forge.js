@@ -19,6 +19,7 @@ import { extractPdfPages, createChunks, getPdfStats, calculateOptimalChunkSize }
 import { ensureDirectory, getDirectoryContents } from "./utils/directory-protection.js";
 import { fetchWebPageAsPdf, generateCleanTitle } from "./utils/web-page.js";
 import { SSELogger } from "./utils/sse-logger.js";
+import { navigateWithChallengeBypass } from "./utils/browser.js";
 
 const API_MODEL = "gpt-5";
 
@@ -855,11 +856,10 @@ export class SummaryForge {
         await page.authenticate({ username: proxyUsername, password: proxyPassword });
       }
       
-      // Navigate to search page
-      console.log(`🌐 Navigating to search page...`);
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      // Navigate to search page with Cloudflare/DDoS-Guard bypass
+      await navigateWithChallengeBypass(page, searchUrl, this.twocaptchaApiKey);
       
-      // Handle DDoS-Guard
+      // Additional DDoS-Guard handling (if needed after bypass)
       const clicked = await page.evaluate(async () => {
         function matchesText(el, re) {
           try {
@@ -1149,9 +1149,8 @@ export class SummaryForge {
         console.log(`✅ Proxy authentication set`);
       }
       
-      // Navigate to search page
-      console.log(`🌐 Navigating to search page...`);
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      // Navigate to search page with Cloudflare/DDoS-Guard bypass
+      await navigateWithChallengeBypass(page, searchUrl, this.twocaptchaApiKey);
       
       console.log(`✅ Page loaded: ${page.url()}`);
       
@@ -1426,9 +1425,8 @@ export class SummaryForge {
         console.log(`✅ Proxy authentication set`);
       }
       
-      // Navigate to search page
-      console.log(`🌐 Navigating to search page...`);
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      // Navigate to search page with Cloudflare/DDoS-Guard bypass
+      await navigateWithChallengeBypass(page, searchUrl, this.twocaptchaApiKey);
       
       // Wait for search results
       console.log('⏳ Waiting for search results...');
@@ -2143,12 +2141,10 @@ export class SummaryForge {
         await page.authenticate({ username: proxyUsername, password: proxyPassword });
       }
       
-      // Step 1: Go to search page with DDoS-Guard bypass
-      console.log(`🌐 Navigating to search page...`);
-      const navOptions = { waitUntil: 'domcontentloaded', timeout: 90000 };
-      await page.goto(searchUrl, navOptions);
+      // Step 1: Go to search page with Cloudflare/DDoS-Guard bypass
+      await navigateWithChallengeBypass(page, searchUrl, this.twocaptchaApiKey);
       
-      // Handle DDoS-Guard on search page
+      // Additional DDoS-Guard handling (if needed after bypass)
       const clicked = await page.evaluate(async () => {
         function matchesText(el, re) {
           try {
