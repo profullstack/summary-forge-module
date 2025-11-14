@@ -6,6 +6,7 @@
 import puppeteer from 'puppeteer-core';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { CaptchaSolver } from './captcha-solver.js';
 
 /**
  * Write debug artifacts
@@ -94,13 +95,97 @@ export async function configurePage(page, proxyConfig) {
 }
 
 /**
- * Navigate to URL and handle DDoS-Guard challenge
+ * Detect if page has Cloudflare challenge
  */
-export async function navigateWithDdgBypass(page, url) {
+export async function detectCloudflareChallenge(page) {
+  return await page.evaluate(() => {
+    const bodyHTML = document.body.innerHTML;
+    const title = document.title.toLowerCase();
+    
+    // Check for Cloudflare indicators
+    const hasCloudflare =
+      bodyHTML.includes('cloudflare') ||
+      bodyHTML.includes('cf-challenge') ||
+      bodyHTML.includes('cf_chl_') ||
+      title.includes('just a moment') ||
+      title.includes('attention required') ||
+      bodyHTML.includes('ray id');
+    
+    if (!hasCloudflare) {
+      return { hasChallenge: false };
+    }
+    
+    // Try to find Turnstile sitekey
+    let sitekey = null;
+    
+    // Method 1: Look for Turnstile div
+    const turnstileDiv = document.querySelector('[data-sitekey]');
+    if (turnstileDiv) {
+      sitekey = turnstileDiv.getAttribute('data-sitekey');
+    }
+    
+    // Method 2: Look in script tags
+    if (!sitekey) {
+      const scripts = Array.from(document.querySelectorAll('script'));
+      for (const script of scripts) {
+        const match = script.textContent.match(/sitekey["\s:=]+["']([^"']+)["']/i);
+        if (match) {
+          sitekey = match[1];
+          break;
+        }
+      }
+    }
+    
+    return {
+      hasChallenge: true,
+      sitekey,
+      challengeType: 'cloudflare-turnstile'
+    };
+  });
+}
+
+/**
+ * Navigate to URL and handle DDoS-Guard and Cloudflare challenges
+ */
+export async function navigateWithDdgBypass(page, url, twocaptchaApiKey = null) {
   console.log(`🌐 Navigating to: ${url}`);
   
   const navOptions = { waitUntil: 'domcontentloaded', timeout: 90000 };
   await page.goto(url, navOptions);
+
+  // Check for Cloudflare challenge first
+  console.log('🔍 Checking for Cloudflare challenge...');
+  const cloudflareInfo = await detectCloudflareChallenge(page);
+  
+  if (cloudflareInfo.hasChallenge) {
+    console.log('🛡️  Cloudflare challenge detected!');
+    
+    if (twocaptchaApiKey && cloudflareInfo.sitekey) {
+      console.log('🔑 Attempting to solve with 2captcha...');
+      const solver = new CaptchaSolver(twocaptchaApiKey);
+      const solved = await solver.solve(page);
+      
+      if (solved) {
+        console.log('✅ Cloudflare challenge solved!');
+        // Wait for page to process the solution
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Check if we're still on challenge page
+        const stillOnChallenge = await detectCloudflareChallenge(page);
+        if (!stillOnChallenge.hasChallenge) {
+          console.log('✅ Successfully bypassed Cloudflare');
+          return;
+        }
+      } else {
+        console.log('⚠️  Failed to solve Cloudflare challenge with 2captcha');
+      }
+    } else if (!twocaptchaApiKey) {
+      console.log('⚠️  2captcha API key not provided - cannot solve Cloudflare challenge');
+      console.log('   Set TWOCAPTCHA_API_KEY environment variable to enable automatic solving');
+    } else {
+      console.log('⚠️  Could not find Cloudflare sitekey - cannot solve challenge');
+    }
+  }
 
   // Try to click any "verify/continue" button that appears
   const clicked = await page.evaluate(async () => {
@@ -157,8 +242,8 @@ export async function navigateWithDdgBypass(page, url) {
 /**
  * Get download URL using Puppeteer with DDoS-Guard bypass
  */
-export async function getDownloadUrlWithPuppeteer(url, page, outputDir) {
-  await navigateWithDdgBypass(page, url);
+export async function getDownloadUrlWithPuppeteer(url, page, outputDir, twocaptchaApiKey = null) {
+  await navigateWithDdgBypass(page, url, twocaptchaApiKey);
 
   // Get final page content
   const title = await page.title();

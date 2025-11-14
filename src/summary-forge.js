@@ -2361,7 +2361,7 @@ export class SummaryForge {
           
           // Now get the download URL using the existing method
           console.log(`🌐 Fetching download URL with Puppeteer + 2captcha...`);
-          const downloadUrl = await this.getDownloadUrlWithPuppeteer(page.url(), page, bookDir);
+          const downloadUrl = await this.getDownloadUrlWithPuppeteer(page.url(), page, bookDir, this.twocaptchaApiKey);
           
           if (!downloadUrl) {
             console.log(`⚠️  Server ${i + 1} - no download URL found`);
