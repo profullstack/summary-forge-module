@@ -3261,11 +3261,36 @@ export class SummaryForge {
       }
       
       const flashcardText = flashcardResp.choices[0]?.message?.content ?? "";
-      if (!flashcardText) {
-        throw new Error('GPT returned empty flashcard content');
+      if (!flashcardText || flashcardText.trim().length === 0) {
+        console.log('⚠️  GPT returned empty flashcard content, skipping flashcard generation');
+        console.log(`   Response status: ${flashcardResp.choices[0]?.finish_reason || 'unknown'}`);
+        return {
+          success: true,
+          files: {
+            summaryMd,
+            summaryTxt,
+            summaryPdf,
+            summaryEpub,
+            audioScript: audioScriptPath,
+            summaryMp3: audioPath,
+            flashcardsMd: null,
+            flashcardsPdf: null
+          },
+          message: 'Successfully generated output files (flashcards skipped due to empty GPT response)'
+        };
       }
       
+      console.log(`📝 Flashcard text received: ${flashcardText.length} chars`);
+      console.log(`📝 First 200 chars: ${flashcardText.substring(0, 200)}...`);
+      
       const flashcards = extractFlashcards(flashcardText, { maxCards: 100 });
+      
+      console.log(`🔍 Extraction result: ${flashcards.count} flashcards found`);
+      if (flashcards.patterns) {
+        console.log(`   - QA format: ${flashcards.patterns.qaFormat}`);
+        console.log(`   - Definitions: ${flashcards.patterns.definitions}`);
+        console.log(`   - Headers: ${flashcards.patterns.headers}`);
+      }
       
       if (flashcards.count > 0) {
         console.log(`📚 Generated ${flashcards.count} flashcards`);
@@ -3788,23 +3813,64 @@ export class SummaryForge {
       }
     }
 
-    const archiveName = path.join(bookDir, `${dirName}_bundle.tgz`);
-    
     // Create bundle by tarring the entire directory (excluding the bundle itself)
     this.logger.progress(98, "Creating bundle archive", { step: 'bundling' });
     const originalCwd = process.cwd();
-    const parentDir = path.dirname(bookDir);
+    
+    // Resolve bookDir to absolute path
+    const absoluteBookDir = path.resolve(originalCwd, bookDir);
+    const parentDir = path.dirname(absoluteBookDir);
+    const bookDirBasename = path.basename(absoluteBookDir);
+    const archiveBasename = `${dirName}_bundle.tgz`;
+    
+    // Define paths
+    const tempArchivePath = path.join(parentDir, archiveBasename);
+    const finalArchivePath = path.join(absoluteBookDir, archiveBasename);
+    
+    this.logger.log(`Creating archive for directory: ${bookDirBasename}`);
+    
+    // Remove any existing archive files to avoid conflicts
+    try {
+      if (await this.fileExists(tempArchivePath)) {
+        await fsp.unlink(tempArchivePath);
+        this.logger.log(`Removed existing temp archive: ${tempArchivePath}`);
+      }
+      if (await this.fileExists(finalArchivePath)) {
+        await fsp.unlink(finalArchivePath);
+        this.logger.log(`Removed existing final archive: ${finalArchivePath}`);
+      }
+    } catch (cleanupErr) {
+      this.logger.log(`Warning: Could not clean up old archives: ${cleanupErr.message}`, 'warn');
+    }
+    
+    // Change to parent directory to create the tar
     process.chdir(parentDir);
     
     try {
       // Tar the entire directory - this will preserve the directory name in the archive
-      // When extracted, it will create ./:title/* structure
-      await this.sh("tar", ["-czf", archiveName, "--exclude", `${path.basename(bookDir)}/${path.basename(archiveName)}`, path.basename(bookDir)]);
-      this.logger.log(`Bundle created: ${archiveName}`);
-      this.logger.log(`Bundle contains directory: ${path.basename(bookDir)}/`);
+      // Create archive in current directory (parentDir)
+      await this.sh("tar", ["-czf", archiveBasename, "--exclude", `${bookDirBasename}/${archiveBasename}`, bookDirBasename]);
+      
+      this.logger.log(`Archive created in parent directory`);
+      
+      // Move the archive into the book directory
+      if (await this.fileExists(tempArchivePath)) {
+        await fsp.rename(tempArchivePath, finalArchivePath);
+        this.logger.log(`Bundle created: ${finalArchivePath}`);
+        this.logger.log(`Bundle contains directory: ${bookDirBasename}/`);
+      } else {
+        // List files in current directory for debugging
+        const filesInParent = await fsp.readdir(parentDir);
+        const matchingFiles = filesInParent.filter(f => f.includes('bundle'));
+        this.logger.log(`Looking for: ${archiveBasename}`);
+        this.logger.log(`Bundle files in parent: ${matchingFiles.join(', ')}`);
+        throw new Error(`Archive was not created at expected location: ${tempArchivePath}`);
+      }
     } finally {
       process.chdir(originalCwd);
     }
+    
+    const archiveName = finalArchivePath;
     
     // Get list of files for return value
     const files = await getDirectoryContents(bookDir);

@@ -2,7 +2,7 @@
 
 /**
  * Summary Forge CLI
- * 
+ *
  * Command-line interface for creating AI-powered book summaries
  */
 
