@@ -3622,32 +3622,30 @@ export class SummaryForge {
       }
       const outputs = outputsResult.files;
     
-    // Create file list for archive
-    const files = [
-      pdfPath,
+    // Build list of generated files (absolute paths)
+    const generatedFiles = [
       outputs.summaryMd,
       outputs.summaryTxt,
       outputs.summaryPdf,
       outputs.summaryEpub
     ];
     
-    // Add audio script to list if it was generated
+    // Add optional files if they were generated
     if (outputs.audioScript) {
-      files.push(outputs.audioScript);
+      generatedFiles.push(outputs.audioScript);
     }
-    
-    // Add audio file to list if it was generated
     if (outputs.summaryMp3) {
-      files.push(outputs.summaryMp3);
+      generatedFiles.push(outputs.summaryMp3);
     }
-    
-    // Add flashcards files to list if they were generated
     if (outputs.flashcardsMd) {
-      files.push(outputs.flashcardsMd);
+      generatedFiles.push(outputs.flashcardsMd);
     }
     if (outputs.flashcardsPdf) {
-      files.push(outputs.flashcardsPdf);
+      generatedFiles.push(outputs.flashcardsPdf);
     }
+    
+    // Create file list for archive (includes PDF)
+    const files = [pdfPath, ...generatedFiles];
     
     // Add flashcards directory if it exists (contains generated images)
     const flashcardsDir = path.join(webPageDir, 'flashcards');
@@ -3689,7 +3687,7 @@ export class SummaryForge {
         basename: sanitizedTitle,
         dirName,
         markdown,
-        files,
+        files: generatedFiles,
         directory: webPageDir,
         archive: archiveName,
         hasAudio: !!outputs.summaryMp3,
@@ -3872,8 +3870,27 @@ export class SummaryForge {
     
     const archiveName = finalArchivePath;
     
-    // Get list of files for return value
-    const files = await getDirectoryContents(bookDir);
+    // Build list of generated files (absolute paths)
+    const generatedFiles = [
+      outputs.summaryMd,
+      outputs.summaryTxt,
+      outputs.summaryPdf,
+      outputs.summaryEpub
+    ];
+    
+    // Add optional files if they were generated
+    if (outputs.audioScript) {
+      generatedFiles.push(outputs.audioScript);
+    }
+    if (outputs.summaryMp3) {
+      generatedFiles.push(outputs.summaryMp3);
+    }
+    if (outputs.flashcardsMd) {
+      generatedFiles.push(outputs.flashcardsMd);
+    }
+    if (outputs.flashcardsPdf) {
+      generatedFiles.push(outputs.flashcardsPdf);
+    }
 
       // Play terminal beep to signal completion
       process.stdout.write('\x07');
@@ -3882,7 +3899,7 @@ export class SummaryForge {
       this.logger.complete(`Successfully processed file: ${basename}`, {
         basename,
         dirName,
-        files: files.length,
+        files: generatedFiles.length,
         hasAudio: !!outputs.summaryMp3
       });
       
@@ -3891,7 +3908,7 @@ export class SummaryForge {
         basename,
         dirName,
         markdown,
-        files,
+        files: generatedFiles,
         directory: bookDir,
         archive: archiveName,
         hasAudio: !!outputs.summaryMp3,
