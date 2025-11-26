@@ -100,15 +100,24 @@ export function createChunks(pages, maxCharsPerChunk = 100000) {
 /**
  * Calculate optimal chunk size based on PDF size and token limits
  * @param {number} totalChars - Total characters in PDF
- * @param {number} maxTokens - Maximum tokens per API call
+ * @param {number} maxInputTokens - Maximum input tokens per API call (default: 250000 for GPT-5 with overhead buffer)
  * @returns {number} Recommended characters per chunk
  */
-export function calculateOptimalChunkSize(totalChars, maxTokens = 100000) {
-  // Rough estimate: 1 token ≈ 4 characters
-  const maxCharsPerChunk = Math.floor(maxTokens * 4 * 0.8); // 80% safety margin
+export function calculateOptimalChunkSize(totalChars, maxInputTokens = 250000) {
+  // Reserve tokens for system prompts, instructions, and response overhead
+  const SYSTEM_OVERHEAD_TOKENS = 20000;
+  const availableTokens = maxInputTokens - SYSTEM_OVERHEAD_TOKENS;
   
-  // Ensure chunks are reasonable size (between 50k and 150k chars)
-  return Math.max(50000, Math.min(maxCharsPerChunk, 150000));
+  // Conservative estimate: 1 token ≈ 3.5 characters (safer than 4)
+  // Use 70% safety margin to account for token estimation variance
+  const CHARS_PER_TOKEN = 3.5;
+  const SAFETY_MARGIN = 0.70;
+  
+  const maxCharsPerChunk = Math.floor(availableTokens * CHARS_PER_TOKEN * SAFETY_MARGIN);
+  
+  // Ensure chunks are reasonable size (between 50k and maxCharsPerChunk)
+  // Remove upper limit cap to allow larger chunks when needed
+  return Math.max(50000, maxCharsPerChunk);
 }
 
 /**

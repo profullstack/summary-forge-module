@@ -285,7 +285,8 @@ const forge = new SummaryForge({
   
   // Processing options
   maxChars: 500000,                  // Max chars to process
-  maxTokens: 20000,                  // Max tokens in summary
+  maxTokens: 20000,                  // Max tokens in output summary
+  maxInputTokens: 250000,            // Max input tokens per API call (default: 250000 for GPT-5)
   
   // Audio options
   voiceId: '21m00Tcm4TlvDq8ikWAM',  // ElevenLabs voice
@@ -468,7 +469,8 @@ new SummaryForge({
   
   // Processing Options
   maxChars: number,          // Optional: Max chars to process (default: 400000)
-  maxTokens: number,         // Optional: Max tokens in summary (default: 16000)
+  maxTokens: number,         // Optional: Max tokens in output summary (default: 16000)
+  maxInputTokens: number,    // Optional: Max input tokens per API call (default: 250000 for GPT-5)
   
   // Audio Options
   voiceId: string,           // Optional: ElevenLabs voice ID (default: Brian)
@@ -762,11 +764,19 @@ summary file ~/Downloads/book.epub
 For PDFs exceeding 400,000 characters (typically 500+ pages), the tool automatically uses an intelligent chunking strategy:
 
 **How it works:**
-1. **Analysis**: Calculates optimal chunk size based on PDF statistics
-2. **Page-Based Chunking**: Splits PDF into logical chunks (typically 50-150k chars each)
-3. **Parallel Processing**: Each chunk is summarized independently by GPT-5
-4. **Intelligent Synthesis**: All chunk summaries are combined into a cohesive final summary
-5. **Quality Preservation**: Maintains narrative flow and eliminates redundancy
+1. **Analysis**: Calculates optimal chunk size based on PDF statistics and GPT-5's token limits
+2. **Smart Token Management**: Respects GPT-5's 272k input token limit with safety margins
+3. **Page-Based Chunking**: Splits PDF into logical chunks that fit within token limits
+4. **Parallel Processing**: Each chunk is summarized independently by GPT-5
+5. **Intelligent Synthesis**: All chunk summaries are combined into a cohesive final summary
+6. **Quality Preservation**: Maintains narrative flow and eliminates redundancy
+
+**Token Limit Handling:**
+- **GPT-5 Input Limit**: 272,000 tokens
+- **System Overhead**: 20,000 tokens reserved for prompts and instructions
+- **Available Tokens**: 250,000 tokens for content
+- **Safety Margin**: 70% utilization to account for token estimation variance
+- **Chunk Size**: ~565,000 characters per chunk (based on 3.5 chars/token estimate)
 
 **Benefits:**
 - ✅ **Complete Coverage**: Processes entire books without truncation
@@ -774,6 +784,7 @@ For PDFs exceeding 400,000 characters (typically 500+ pages), the tool automatic
 - ✅ **Seamless Output**: Final summary reads as a unified document
 - ✅ **Cost Efficient**: Optimizes token usage across multiple API calls
 - ✅ **Automatic**: No configuration needed - works transparently
+- ✅ **Token-Aware**: Respects API limits to prevent errors
 
 **Example Output:**
 ```

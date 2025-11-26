@@ -68,6 +68,8 @@ export class SummaryForge {
     this.openai = new OpenAI({ apiKey: this.openaiApiKey });
     this.maxChars = config.maxChars ?? 400000;
     this.maxTokens = config.maxTokens ?? 16000;
+    // GPT-5 has a 272k token input limit, we use 250k to leave room for system prompts
+    this.maxInputTokens = config.maxInputTokens ?? 250000;
     
     // Initialize ElevenLabs client if API key is provided
     if (this.elevenlabsApiKey) {
@@ -2814,9 +2816,9 @@ export class SummaryForge {
         const pages = await extractPdfPages(pdfPath);
         this.logger.log(`Extracted ${pages.length} pages`);
         
-        // Calculate optimal chunk size
-        const optimalChunkSize = calculateOptimalChunkSize(stats.totalChars, 100000);
-        this.logger.log(`Using chunk size: ${optimalChunkSize.toLocaleString()} chars`);
+        // Calculate optimal chunk size based on model's input token limit
+        const optimalChunkSize = calculateOptimalChunkSize(stats.totalChars, this.maxInputTokens);
+        this.logger.log(`Using chunk size: ${optimalChunkSize.toLocaleString()} chars (max input tokens: ${this.maxInputTokens.toLocaleString()})`);
         
         // Create chunks
         const chunks = createChunks(pages, optimalChunkSize);

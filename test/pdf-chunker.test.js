@@ -8,23 +8,42 @@ import { extractPdfPages, createChunks, calculateOptimalChunkSize, getPdfStats }
 describe('PDF Chunker', () => {
   describe('calculateOptimalChunkSize', () => {
     it('should return a reasonable chunk size for small PDFs', () => {
-      const chunkSize = calculateOptimalChunkSize(50000, 100000);
+      const chunkSize = calculateOptimalChunkSize(50000, 250000);
       expect(chunkSize).toBeGreaterThanOrEqual(50000);
-      expect(chunkSize).toBeLessThanOrEqual(150000);
+      // With new formula: (250000 - 20000) * 3.5 * 0.70 = 563,500 chars
+      expect(chunkSize).toBeLessThanOrEqual(600000);
     });
 
     it('should return a reasonable chunk size for large PDFs', () => {
-      const chunkSize = calculateOptimalChunkSize(1000000, 100000);
+      const chunkSize = calculateOptimalChunkSize(1000000, 250000);
       expect(chunkSize).toBeGreaterThanOrEqual(50000);
-      expect(chunkSize).toBeLessThanOrEqual(150000);
+      // Should allow larger chunks with GPT-5's higher limit
+      expect(chunkSize).toBeLessThanOrEqual(600000);
     });
 
-    it('should respect token limits', () => {
-      const maxTokens = 50000;
-      const chunkSize = calculateOptimalChunkSize(500000, maxTokens);
-      // 1 token ≈ 4 chars, with 80% safety margin
-      const expectedMax = Math.floor(maxTokens * 4 * 0.8);
+    it('should respect token limits with safety margins', () => {
+      const maxInputTokens = 250000;
+      const chunkSize = calculateOptimalChunkSize(500000, maxInputTokens);
+      // New formula: (maxInputTokens - 20000) * 3.5 * 0.70
+      const SYSTEM_OVERHEAD = 20000;
+      const CHARS_PER_TOKEN = 3.5;
+      const SAFETY_MARGIN = 0.70;
+      const expectedMax = Math.floor((maxInputTokens - SYSTEM_OVERHEAD) * CHARS_PER_TOKEN * SAFETY_MARGIN);
       expect(chunkSize).toBeLessThanOrEqual(expectedMax);
+    });
+
+    it('should handle GPT-5 token limits correctly', () => {
+      // GPT-5 has 272k input limit, we use 250k to be safe
+      const chunkSize = calculateOptimalChunkSize(1000000, 250000);
+      // Should produce chunks that fit within GPT-5's limits
+      const estimatedTokens = Math.ceil(chunkSize / 3.5);
+      expect(estimatedTokens).toBeLessThan(250000);
+    });
+
+    it('should enforce minimum chunk size', () => {
+      // Even with very low token limits, should maintain minimum
+      const chunkSize = calculateOptimalChunkSize(10000, 10000);
+      expect(chunkSize).toBeGreaterThanOrEqual(50000);
     });
   });
 
@@ -108,7 +127,7 @@ describe('PDF Chunker', () => {
   });
 
   describe('Integration: Full chunking workflow', () => {
-    it('should handle typical book-sized content', () => {
+    it('should handle typical book-sized content with GPT-5 limits', () => {
       // Simulate a 500-page book with ~2000 chars per page = 1,000,000 chars total
       const pages = Array.from({ length: 500 }, (_, i) => ({
         pageNum: i + 1,
@@ -116,12 +135,13 @@ describe('PDF Chunker', () => {
         charCount: 2000
       }));
       
-      const chunkSize = calculateOptimalChunkSize(1000000, 100000);
+      // Use GPT-5's 250k token limit (272k actual - 22k buffer)
+      const chunkSize = calculateOptimalChunkSize(1000000, 250000);
       const chunks = createChunks(pages, chunkSize);
       
-      // Verify reasonable number of chunks
-      expect(chunks.length).toBeGreaterThanOrEqual(5);
-      expect(chunks.length).toBeLessThanOrEqual(20);
+      // With larger chunk sizes, should need fewer chunks
+      expect(chunks.length).toBeGreaterThanOrEqual(2);
+      expect(chunks.length).toBeLessThanOrEqual(10);
       
       // Verify all pages are included
       const totalPages = chunks.reduce((sum, chunk) =>
@@ -133,6 +153,35 @@ describe('PDF Chunker', () => {
       for (let i = 0; i < chunks.length - 1; i++) {
         expect(chunks[i].endPage + 1).toBe(chunks[i + 1].startPage);
       }
+      
+      // Verify each chunk respects token limits
+      chunks.forEach(chunk => {
+        const estimatedTokens = Math.ceil(chunk.charCount / 3.5);
+        expect(estimatedTokens).toBeLessThan(250000);
+      });
+    });
+
+    it('should handle oversized PDFs that exceed single chunk limit', () => {
+      // Simulate a very large PDF that would exceed 272k tokens in one go
+      // 332,970 tokens = ~1,165,395 chars (at 3.5 chars/token)
+      const totalChars = 1165395;
+      const pages = Array.from({ length: 1000 }, (_, i) => ({
+        pageNum: i + 1,
+        text: 'A'.repeat(Math.floor(totalChars / 1000)),
+        charCount: Math.floor(totalChars / 1000)
+      }));
+      
+      const chunkSize = calculateOptimalChunkSize(totalChars, 250000);
+      const chunks = createChunks(pages, chunkSize);
+      
+      // Should split into multiple chunks
+      expect(chunks.length).toBeGreaterThan(1);
+      
+      // Each chunk should be within limits
+      chunks.forEach(chunk => {
+        const estimatedTokens = Math.ceil(chunk.charCount / 3.5);
+        expect(estimatedTokens).toBeLessThan(250000);
+      });
     });
   });
 });
