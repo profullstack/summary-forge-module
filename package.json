@@ -19,7 +19,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "postinstall": "pnpm dlx @socketsecurity/socket-patch apply --silent --ecosystems npm",
+    "dependencies": "pnpm dlx @socketsecurity/socket-patch apply --silent --ecosystems npm"
   },
   "keywords": [
     "ai",
