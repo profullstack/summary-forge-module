@@ -1,10 +1,18 @@
 // test-proxy-ddg-bypass.mjs
 import puppeteer from 'puppeteer-extra';
 
-const PROXY_HOST = 'p.webshare.io';
-const PROXY_PORT = 80;
-const USERNAME = 'dmdgluqz-US-4';
-const PASSWORD = '8rxcagjln8n36to';
+// The proxy is a paid, shared credential: it comes from the environment (same
+// variables the module itself reads, see src/utils/config.js) and is never
+// written into a source file.
+const PROXY_HOST = process.env.PROXY_HOST ?? 'p.webshare.io';
+const PROXY_PORT = Number(process.env.PROXY_PORT ?? 80);
+const USERNAME = process.env.PROXY_USERNAME;
+const PASSWORD = process.env.PROXY_PASSWORD;
+
+if (process.env.ENABLE_PROXY !== 'true' || !USERNAME || !PASSWORD) {
+  console.error('Set ENABLE_PROXY=true, PROXY_USERNAME and PROXY_PASSWORD to run this script.');
+  process.exit(1);
+}
 
 // target URL
 const URL = 'https://annas-archive.org/slow_download/52db34d038cff82f57da95eaa512ad43/0/4';
