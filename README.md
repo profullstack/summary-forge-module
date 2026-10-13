@@ -28,6 +28,12 @@ An intelligent tool that uses OpenAI's GPT-5 to forge comprehensive summaries of
 
 ### Global Installation (CLI)
 
+```sh
+curl -fsSL https://raw.githubusercontent.com/profullstack/summary-forge-module/master/install.sh | sh
+```
+
+It installs the `summary` command into `~/.local` (no sudo) and fetches a private Node if this machine has no Node 20+. Run it again to update; remove with `sh ~/.local/share/summary-forge/uninstall.sh`. Or with pnpm:
+
 ```bash
 pnpm install -g @profullstack/summary-forge-module
 ```
